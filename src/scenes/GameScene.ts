@@ -4,19 +4,18 @@ type RoundConfig = {
   carSpeed: number;
   spawnDelay: number;
   laneCount: number;
+  carsPerRound: number;
   bombDelay: number;
   bombCount: number;
   mazeWalls: number;
 };
 
 const ROUND_CONFIGS: RoundConfig[] = [
-  { carSpeed: 190, spawnDelay: 1250, laneCount: 4, bombDelay: 6200, bombCount: 5, mazeWalls: 5 },
-  { carSpeed: 250, spawnDelay: 950, laneCount: 5, bombDelay: 5000, bombCount: 8, mazeWalls: 7 },
-  { carSpeed: 315, spawnDelay: 700, laneCount: 6, bombDelay: 3900, bombCount: 11, mazeWalls: 9 },
+  { carSpeed: 190, spawnDelay: 1250, laneCount: 4, carsPerRound: 500, bombDelay: 6200, bombCount: 5, mazeWalls: 5 },
+  { carSpeed: 250, spawnDelay: 950, laneCount: 5, carsPerRound: 1000, bombDelay: 5000, bombCount: 8, mazeWalls: 7 },
+  { carSpeed: 315, spawnDelay: 700, laneCount: 6, carsPerRound: 1200, bombDelay: 3900, bombCount: 11, mazeWalls: 9 },
 ];
 const ROUND_TIME_LIMIT_SECONDS = 180;
-const CARS_PER_ROUND = 200;
-const CAR_SPAWN_INTERVAL_MS = (ROUND_TIME_LIMIT_SECONDS * 1000) / CARS_PER_ROUND;
 const BULLET_FIRE_INTERVAL_MS = 120;
 const GUIDE_DISPLAY_MS = 5000;
 const GUIDE_COOLDOWN_MS = 15000;
@@ -54,6 +53,8 @@ export class GameScene extends Phaser.Scene {
   private dangerDropTimer?: Phaser.Time.TimerEvent;
   private hitCooldownUntil = 0;
   private nextShotAt = 0;
+  private shotDirectionX = 0;
+  private shotDirectionY = -1;
   private guideReadyAt = 0;
   private dangerZone?: Phaser.GameObjects.Rectangle;
   private guidePath?: Phaser.GameObjects.Graphics;
@@ -75,6 +76,8 @@ export class GameScene extends Phaser.Scene {
     this.warpReadyAt = 0;
     this.hitCooldownUntil = 0;
     this.nextShotAt = 0;
+    this.shotDirectionX = 0;
+    this.shotDirectionY = -1;
     this.guideReadyAt = 0;
     this.paused = false;
     this.transitioning = false;
@@ -252,7 +255,7 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => {
         this.transitioning = false;
         this.spawnTimer = this.time.addEvent({
-          delay: CAR_SPAWN_INTERVAL_MS,
+          delay: (ROUND_TIME_LIMIT_SECONDS * 1000) / config.carsPerRound,
           loop: true,
           callback: this.spawnCar,
           callbackScope: this,
@@ -268,11 +271,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnCar(): void {
-    if (this.paused || this.transitioning || this.carsSpawned >= CARS_PER_ROUND) {
-      return;
-    }
     const config = ROUND_CONFIGS[this.round - 1];
-    if (!config) {
+    if (!config || this.paused || this.transitioning || this.carsSpawned >= config.carsPerRound) {
       return;
     }
     const lane = Phaser.Math.Between(0, config.laneCount - 1);
