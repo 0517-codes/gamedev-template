@@ -14,7 +14,11 @@ const ROUND_CONFIGS: RoundConfig[] = [
   { carSpeed: 250, spawnDelay: 950, laneCount: 5, bombDelay: 5000, bombCount: 3, mazeWalls: 7 },
   { carSpeed: 315, spawnDelay: 700, laneCount: 6, bombDelay: 3900, bombCount: 4, mazeWalls: 9 },
 ];
-const TIME_LIMIT_SECONDS = 10;
+const ROUND_TIME_LIMIT_SECONDS = 30;
+const MAZE_COLUMNS = 40;
+const MAZE_ROWS = 40;
+const MAZE_CELL_SIZE = 40;
+const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -75,8 +79,8 @@ export class GameScene extends Phaser.Scene {
     this.roundSeconds += seconds;
     this.totalSeconds += seconds;
     this.score += Math.floor(seconds * 10);
-    if (this.totalSeconds >= TIME_LIMIT_SECONDS) {
-      this.totalSeconds = TIME_LIMIT_SECONDS;
+    if (this.roundSeconds >= ROUND_TIME_LIMIT_SECONDS) {
+      this.roundSeconds = ROUND_TIME_LIMIT_SECONDS;
       this.finishGame(false);
       return;
     }
@@ -123,11 +127,11 @@ export class GameScene extends Phaser.Scene {
 
   private createWorld(): void {
     const { width, height } = this.scale;
-    this.add.rectangle(width / 2, height / 2, width, height, 0x102033);
-    this.add.rectangle(width / 2, 78, width - 140, 90, 0x23533f);
-    this.add.rectangle(width / 2, 654, width - 140, 90, 0x23533f);
+    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0x102033);
+    this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0x23533f);
+    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0x23533f);
 
-    this.player = this.physics.add.sprite(width / 2, 620, 'player');
+    this.player = this.physics.add.sprite(WORLD_SIZE / 2, WORLD_SIZE - 80, 'player');
     this.player.setCollideWorldBounds(true);
     if (this.player.body) {
       this.player.body.setSize(24, 36, true);
@@ -135,11 +139,15 @@ export class GameScene extends Phaser.Scene {
 
     this.cars = this.physics.add.group({ allowGravity: false, immovable: true });
     this.bombs = this.physics.add.group({ allowGravity: false, immovable: true });
-  this.walls = this.physics.add.staticGroup();
+    this.walls = this.physics.add.staticGroup();
     this.physics.add.overlap(this.player, this.cars, this.handleHit, undefined, this);
     this.physics.add.overlap(this.player, this.bombs, this.handleBombHit, undefined, this);
-  this.physics.add.collider(this.player, this.walls);
-  this.physics.add.collider(this.cars, this.walls);
+    this.physics.add.collider(this.player, this.walls);
+    this.physics.add.collider(this.cars, this.walls);
+    this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
+    this.player.setCollideWorldBounds(true);
+    this.cameras.main.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
+    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
 
     this.hud = this.add.text(24, 20, '', {
       fontFamily: 'sans-serif',
@@ -154,6 +162,8 @@ export class GameScene extends Phaser.Scene {
       color: '#f7d774',
       fontStyle: 'bold',
     }).setOrigin(0.5).setAlpha(0);
+    this.hud.setScrollFactor(0);
+    this.banner.setScrollFactor(0);
   }
 
   private createInput(): void {
@@ -183,7 +193,8 @@ export class GameScene extends Phaser.Scene {
     this.transitioning = true;
     this.hits = 0;
     this.hitCooldownUntil = 0;
-    this.player.setPosition(this.scale.width / 2, 620);
+    this.roundSeconds = 0;
+    this.player.setPosition(WORLD_SIZE / 2, WORLD_SIZE - 80);
     this.player.setVelocity(0, 0);
     this.cars.clear(true, true);
     this.bombs.clear(true, true);
@@ -227,10 +238,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const lane = Phaser.Math.Between(0, config.laneCount - 1);
-    const laneHeight = 500 / config.laneCount;
-    const y = 145 + lane * laneHeight + laneHeight / 2;
+    const laneHeight = (WORLD_SIZE - 160) / config.laneCount;
+    const y = 120 + lane * laneHeight + laneHeight / 2;
     const fromLeft = Phaser.Math.Between(0, 1) === 0;
-    const x = fromLeft ? 70 : this.scale.width - 70;
+    const x = fromLeft ? 70 : WORLD_SIZE - 70;
     const car = this.cars.create(x, y, 'car') as Phaser.Physics.Arcade.Sprite;
     car.setVelocityX(fromLeft ? config.carSpeed : -config.carSpeed);
     car.setFlipX(!fromLeft);
@@ -254,7 +265,7 @@ export class GameScene extends Phaser.Scene {
       this.player.setVelocityX(0);
     }
 
-    this.player.x = Phaser.Math.Clamp(this.player.x, 90, this.scale.width - 90);
+    this.player.x = Phaser.Math.Clamp(this.player.x, 30, WORLD_SIZE - 30);
 
     if (Phaser.Input.Keyboard.JustDown(this.shiftKey) && time >= this.speedBoostUntil) {
       this.speedBoostUntil = time + 3500;
@@ -266,14 +277,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createMaze(difficulty: number): void {
-    const mazeLeft = 90;
-    const mazeTop = 125;
-    const mazeWidth = this.scale.width - 180;
-    const mazeHeight = 500;
-    const columns = 15;
-    const rows = 8;
-    const cellWidth = mazeWidth / columns;
-    const cellHeight = mazeHeight / rows;
+    const mazeLeft = 0;
+    const mazeTop = 0;
+    const columns = MAZE_COLUMNS;
+    const rows = MAZE_ROWS;
+    const cellWidth = MAZE_CELL_SIZE;
+    const cellHeight = MAZE_CELL_SIZE;
     const wallThickness = 12;
     const pathColumns = [Math.floor(columns / 2)];
 
@@ -325,7 +334,7 @@ export class GameScene extends Phaser.Scene {
   private recycleCars(): void {
     for (const child of this.cars.children) {
       const car = child as Phaser.Physics.Arcade.Sprite;
-      if (car.x < -120 || car.x > this.scale.width + 120) {
+      if (car.x < -120 || car.x > WORLD_SIZE + 120) {
         car.destroy();
       }
     }
@@ -357,8 +366,8 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const x = Phaser.Math.Between(150, this.scale.width - 150);
-    const y = Phaser.Math.Between(200, 570);
+    const x = Phaser.Math.Between(150, WORLD_SIZE - 150);
+    const y = Phaser.Math.Between(200, WORLD_SIZE - 200);
     const zone = this.add.rectangle(x, y, 120, 76, 0xe33e4f, 0.45)
       .setStrokeStyle(4, 0xff6675, 1);
     this.dangerZone = zone;
@@ -496,7 +505,7 @@ export class GameScene extends Phaser.Scene {
     const warp = Math.max(0, (this.warpReadyAt - time) / 1000);
     this.hud.setText([
       `ラウンド ${this.round} / 3`,
-      `残り時間  ${Math.max(0, TIME_LIMIT_SECONDS - this.totalSeconds).toFixed(1)} 秒`,
+      `残り時間  ${Math.max(0, ROUND_TIME_LIMIT_SECONDS - this.roundSeconds).toFixed(1)} 秒`,
       `スコア ${this.score}`,
       `衝突  ${this.hits} / 2`,
       `加速 ${boost > 0 ? `${boost.toFixed(1)}秒` : '準備完了'}   ワープ ${warp > 0 ? `${warp.toFixed(1)}秒` : '準備完了'}`,
