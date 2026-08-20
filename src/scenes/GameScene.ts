@@ -15,23 +15,30 @@ const ROUND_CONFIGS: RoundConfig[] = [
   { carSpeed: 315, spawnDelay: 700, laneCount: 6, bombDelay: 3900, bombCount: 4, mazeWalls: 9 },
 ];
 const ROUND_TIME_LIMIT_SECONDS = 30;
+const CARS_PER_ROUND = 200;
+const CAR_SPAWN_INTERVAL_MS = (ROUND_TIME_LIMIT_SECONDS * 1000) / CARS_PER_ROUND;
+const BULLET_FIRE_INTERVAL_MS = 120;
 const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
 const MAZE_CELL_SIZE = 40;
+const MAZE_CORRIDOR_WIDTH = 2;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
   private cars!: Phaser.Physics.Arcade.Group;
   private bombs!: Phaser.Physics.Arcade.Group;
+  private bullets!: Phaser.Physics.Arcade.Group;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private shiftKey!: Phaser.Input.Keyboard.Key;
   private spaceKey!: Phaser.Input.Keyboard.Key;
+  private fireKey!: Phaser.Input.Keyboard.Key;
   private escKey!: Phaser.Input.Keyboard.Key;
   private round = 1;
   private hits = 0;
   private score = 0;
+  private carsSpawned = 0;
   private totalSeconds = 0;
   private roundSeconds = 0;
   private speedBoostUntil = 0;
@@ -44,6 +51,7 @@ export class GameScene extends Phaser.Scene {
   private bombTimer?: Phaser.Time.TimerEvent;
   private dangerDropTimer?: Phaser.Time.TimerEvent;
   private hitCooldownUntil = 0;
+  private nextShotAt = 0;
   private dangerZone?: Phaser.GameObjects.Rectangle;
 
   constructor() {
@@ -54,11 +62,13 @@ export class GameScene extends Phaser.Scene {
     this.round = 1;
     this.hits = 0;
     this.score = 0;
+    this.carsSpawned = 0;
     this.totalSeconds = 0;
     this.roundSeconds = 0;
     this.speedBoostUntil = 0;
     this.warpReadyAt = 0;
     this.hitCooldownUntil = 0;
+    this.nextShotAt = 0;
     this.paused = false;
     this.transitioning = false;
     this.createTextures();
@@ -85,7 +95,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.updatePlayer(time);
+    this.fireWeapon(time);
     this.recycleCars();
+    this.recycleBullets();
     this.updateBombs();
     this.updateHud(time);
 
@@ -118,6 +130,12 @@ export class GameScene extends Phaser.Scene {
     bombGraphics.generateTexture('bomb', 36, 36);
     bombGraphics.destroy();
 
+    const bulletGraphics = this.add.graphics();
+    bulletGraphics.fillStyle(0xffe277, 1);
+    bulletGraphics.fillRoundedRect(0, 0, 8, 22, 3);
+    bulletGraphics.generateTexture('bullet', 8, 22);
+    bulletGraphics.destroy();
+
     const wallGraphics = this.add.graphics();
     wallGraphics.fillStyle(0x657386, 1);
     wallGraphics.fillRect(0, 0, 1, 1);
@@ -134,14 +152,16 @@ export class GameScene extends Phaser.Scene {
     this.player = this.physics.add.sprite(WORLD_SIZE / 2, WORLD_SIZE - 80, 'player');
     this.player.setCollideWorldBounds(true);
     if (this.player.body) {
-      this.player.body.setSize(24, 36, true);
+      this.player.body.setSize(24, 28, true);
     }
 
     this.cars = this.physics.add.group({ allowGravity: false, immovable: true });
     this.bombs = this.physics.add.group({ allowGravity: false, immovable: true });
+    this.bullets = this.physics.add.group({ allowGravity: false });
     this.walls = this.physics.add.staticGroup();
     this.physics.add.overlap(this.player, this.cars, this.handleHit, undefined, this);
     this.physics.add.overlap(this.player, this.bombs, this.handleBombHit, undefined, this);
+    this.physics.add.overlap(this.bullets, this.cars, this.handleBulletHit, undefined, this);
     this.physics.add.collider(this.player, this.walls);
     this.physics.add.collider(this.cars, this.walls);
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
@@ -174,6 +194,7 @@ export class GameScene extends Phaser.Scene {
     this.cursors = keyboard.createCursorKeys();
     this.shiftKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.fireKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
     this.escKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     keyboard.addCapture([
       Phaser.Input.Keyboard.KeyCodes.UP,
@@ -182,6 +203,7 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
       Phaser.Input.Keyboard.KeyCodes.ESC,
       Phaser.Input.Keyboard.KeyCodes.SPACE,
+      Phaser.Input.Keyboard.KeyCodes.F,
     ]);
   }
 
@@ -198,6 +220,8 @@ export class GameScene extends Phaser.Scene {
     this.player.setVelocity(0, 0);
     this.cars.clear(true, true);
     this.bombs.clear(true, true);
+    this.bullets.clear(true, true);
+    this.carsSpawned = 0;
     this.walls.clear(true, true);
     this.createMaze(config.mazeWalls);
     this.dangerZone?.destroy();
@@ -214,7 +238,7 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => {
         this.transitioning = false;
         this.spawnTimer = this.time.addEvent({
-          delay: config.spawnDelay,
+          delay: CAR_SPAWN_INTERVAL_MS,
           loop: true,
           callback: this.spawnCar,
           callbackScope: this,
@@ -230,7 +254,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnCar(): void {
-    if (this.paused || this.transitioning) {
+    if (this.paused || this.transitioning || this.carsSpawned >= CARS_PER_ROUND) {
       return;
     }
     const config = ROUND_CONFIGS[this.round - 1];
@@ -246,6 +270,7 @@ export class GameScene extends Phaser.Scene {
     car.setVelocityX(fromLeft ? config.carSpeed : -config.carSpeed);
     car.setFlipX(!fromLeft);
     car.setData('direction', fromLeft ? 1 : -1);
+    this.carsSpawned += 1;
   }
 
   private updatePlayer(time: number): void {
@@ -276,6 +301,15 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private fireWeapon(time: number): void {
+    if (!this.fireKey.isDown || time < this.nextShotAt) {
+      return;
+    }
+    const bullet = this.bullets.create(this.player.x, this.player.y - 34, 'bullet') as Phaser.Physics.Arcade.Sprite;
+    bullet.setVelocityY(-760);
+    this.nextShotAt = time + BULLET_FIRE_INTERVAL_MS;
+  }
+
   private createMaze(difficulty: number): void {
     const mazeLeft = 0;
     const mazeTop = 0;
@@ -283,20 +317,26 @@ export class GameScene extends Phaser.Scene {
     const rows = MAZE_ROWS;
     const cellWidth = MAZE_CELL_SIZE;
     const cellHeight = MAZE_CELL_SIZE;
-    const wallThickness = 12;
+    const wallThickness = 8;
     const pathColumns = [Math.floor(columns / 2)];
 
     for (let row = 1; row < rows; row += 1) {
       const previousColumn = pathColumns[row - 1] ?? Math.floor(columns / 2);
-      const direction = (row + difficulty) % 4 < 2 ? 1 : -1;
-      pathColumns.push(Phaser.Math.Clamp(previousColumn + direction, 1, columns - 2));
+      const direction = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
+      pathColumns.push(Phaser.Math.Clamp(previousColumn + direction, 1, columns - MAZE_CORRIDOR_WIDTH - 1));
     }
 
     for (let row = 1; row < rows; row += 1) {
       const pathColumn = pathColumns[row] ?? Math.floor(columns / 2);
-      const secondaryGap = (row * 3 + difficulty) % columns;
+      let secondaryGap = Phaser.Math.Between(0, columns - 1);
+      while (secondaryGap >= pathColumn && secondaryGap < pathColumn + MAZE_CORRIDOR_WIDTH) {
+        secondaryGap = Phaser.Math.Between(0, columns - 1);
+      }
       for (let column = 0; column < columns; column += 1) {
-        if (column !== pathColumn && column !== secondaryGap) {
+        const isPath = column >= pathColumn
+          && column < pathColumn + MAZE_CORRIDOR_WIDTH;
+        const isSecondaryGap = column === secondaryGap;
+        if (!isPath && !isSecondaryGap) {
           this.addMazeWall(
             mazeLeft + column * cellWidth + cellWidth / 2,
             mazeTop + row * cellHeight,
@@ -308,11 +348,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     for (let barrier = 0; barrier < difficulty; barrier += 1) {
-      const row = 1 + ((barrier * 2 + difficulty) % (rows - 1));
-      const column = 2 + ((barrier * 4 + difficulty) % (columns - 4));
+      const row = Phaser.Math.Between(1, rows - 1);
+      const column = Phaser.Math.Between(2, columns - 3);
       const pathBefore = pathColumns[row - 1] ?? Math.floor(columns / 2);
       const pathAfter = pathColumns[row] ?? pathBefore;
-      if (Math.abs(column - pathBefore) <= 1 || Math.abs(column - pathAfter) <= 1) {
+      if (
+        column >= pathBefore - 1
+        && column <= pathBefore + MAZE_CORRIDOR_WIDTH
+        || column >= pathAfter - 1
+        && column <= pathAfter + MAZE_CORRIDOR_WIDTH
+      ) {
         continue;
       }
       const wallHeight = cellHeight * 0.75;
@@ -338,6 +383,35 @@ export class GameScene extends Phaser.Scene {
         car.destroy();
       }
     }
+  }
+
+  private recycleBullets(): void {
+    for (const child of this.bullets.children) {
+      const bullet = child as Phaser.Physics.Arcade.Sprite;
+      if (bullet.y < -40) {
+        bullet.destroy();
+      }
+    }
+  }
+
+  private handleBulletHit(
+    bulletObject: Phaser.Types.Physics.Arcade.GameObjectWithBody
+      | Phaser.Physics.Arcade.Body
+      | Phaser.Physics.Arcade.StaticBody
+      | Phaser.Tilemaps.Tile,
+    carObject: Phaser.Types.Physics.Arcade.GameObjectWithBody
+      | Phaser.Physics.Arcade.Body
+      | Phaser.Physics.Arcade.StaticBody
+      | Phaser.Tilemaps.Tile,
+  ): void {
+    const bullet = bulletObject as unknown as Phaser.Physics.Arcade.Sprite;
+    const car = carObject as unknown as Phaser.Physics.Arcade.Sprite;
+    if (!bullet.active || !car.active) {
+      return;
+    }
+    bullet.destroy();
+    car.destroy();
+    this.score += 50;
   }
 
   private handleHit(): void {
@@ -477,6 +551,7 @@ export class GameScene extends Phaser.Scene {
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
     this.bombs.clear(true, true);
+    this.bullets.clear(true, true);
     this.player.setVelocity(0, 0);
     this.scene.start('ResultScene', {
       totalSeconds: this.totalSeconds,
@@ -509,7 +584,7 @@ export class GameScene extends Phaser.Scene {
       `スコア ${this.score}`,
       `衝突  ${this.hits} / 2`,
       `加速 ${boost > 0 ? `${boost.toFixed(1)}秒` : '準備完了'}   ワープ ${warp > 0 ? `${warp.toFixed(1)}秒` : '準備完了'}`,
-      '移動: 矢印キー   赤い警告ゾーン: 2秒後に爆弾',
+      '移動: 矢印キー   F: 連射   赤い警告ゾーン: 2秒後に爆弾',
     ]);
   }
 }
