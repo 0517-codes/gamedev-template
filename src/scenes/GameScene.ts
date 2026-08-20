@@ -10,9 +10,9 @@ type RoundConfig = {
 };
 
 const ROUND_CONFIGS: RoundConfig[] = [
-  { carSpeed: 190, spawnDelay: 1250, laneCount: 4, bombDelay: 6200, bombCount: 2, mazeWalls: 2 },
-  { carSpeed: 250, spawnDelay: 950, laneCount: 5, bombDelay: 5000, bombCount: 3, mazeWalls: 3 },
-  { carSpeed: 315, spawnDelay: 700, laneCount: 6, bombDelay: 3900, bombCount: 4, mazeWalls: 4 },
+  { carSpeed: 190, spawnDelay: 1250, laneCount: 4, bombDelay: 6200, bombCount: 2, mazeWalls: 5 },
+  { carSpeed: 250, spawnDelay: 950, laneCount: 5, bombDelay: 5000, bombCount: 3, mazeWalls: 7 },
+  { carSpeed: 315, spawnDelay: 700, laneCount: 6, bombDelay: 3900, bombCount: 4, mazeWalls: 9 },
 ];
 const TIME_LIMIT_SECONDS = 10;
 
@@ -47,6 +47,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.round = 1;
+    this.hits = 0;
+    this.score = 0;
+    this.totalSeconds = 0;
+    this.roundSeconds = 0;
+    this.speedBoostUntil = 0;
+    this.warpReadyAt = 0;
+    this.hitCooldownUntil = 0;
+    this.paused = false;
+    this.transitioning = false;
     this.createTextures();
     this.createWorld();
     this.createInput();
@@ -171,6 +181,8 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.transitioning = true;
+    this.hits = 0;
+    this.hitCooldownUntil = 0;
     this.player.setPosition(this.scale.width / 2, 620);
     this.player.setVelocity(0, 0);
     this.cars.clear(true, true);
