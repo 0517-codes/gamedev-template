@@ -1,17 +1,26 @@
 import Phaser from 'phaser';
-import { HelloScene } from './scenes/HelloScene';
+import { GameScene } from './scenes/GameScene';
+import { ResultScene } from './scenes/ResultScene';
+import { TitleScene } from './scenes/TitleScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container',
-  backgroundColor: '#ffffff',
+  backgroundColor: '#102033',
+  physics: {
+    default: 'arcade',
+    arcade: {
+      gravity: { x: 0, y: 0 },
+      debug: false,
+    },
+  },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 1280,
     height: 720,
   },
-  scene: [HelloScene],
+  scene: [TitleScene, GameScene, ResultScene],
 };
 
 const game = new Phaser.Game(config);
