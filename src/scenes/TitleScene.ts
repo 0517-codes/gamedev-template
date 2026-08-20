@@ -23,9 +23,14 @@ export class TitleScene extends Phaser.Scene {
       fontSize: '22px',
       color: '#000000',
     }).setOrigin(0.5);
-    this.add.text(width / 2, 410, '矢印キー  移動     SHIFT  加速     SPACE  ワープ     F  連射     G  道案内', {
+    this.add.text(width / 2, 390, '矢印キー: 移動　 SHIFT: 加速　 SPACE: ワープ', {
       fontFamily: 'sans-serif',
-      fontSize: '24px',
+      fontSize: '22px',
+      color: '#000000',
+    }).setOrigin(0.5);
+    this.add.text(width / 2, 435, 'F: 連射　 R: リロード　 G: 道案内', {
+      fontFamily: 'sans-serif',
+      fontSize: '22px',
       color: '#000000',
     }).setOrigin(0.5);
     const prompt = this.add.text(width / 2, 560, 'Enterキーで開始', {

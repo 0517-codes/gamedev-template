@@ -17,12 +17,16 @@ const ROUND_CONFIGS: RoundConfig[] = [
 ];
 const ROUND_TIME_LIMIT_SECONDS = 180;
 const BULLET_FIRE_INTERVAL_MS = 120;
+const MAGAZINE_SIZE = 12;
+const RELOAD_DURATION_MS = 2000;
 const GUIDE_DISPLAY_MS = 5000;
 const GUIDE_COOLDOWN_MS = 15000;
 const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
 const MAZE_CELL_SIZE = 40;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
+const SIDEBAR_WIDTH = 280;
+const STAGE_VIEWPORT_WIDTH = 680;
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -34,6 +38,7 @@ export class GameScene extends Phaser.Scene {
   private shiftKey!: Phaser.Input.Keyboard.Key;
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private fireKey!: Phaser.Input.Keyboard.Key;
+  private reloadKey!: Phaser.Input.Keyboard.Key;
   private guideKey!: Phaser.Input.Keyboard.Key;
   private escKey!: Phaser.Input.Keyboard.Key;
   private round = 1;
@@ -53,6 +58,10 @@ export class GameScene extends Phaser.Scene {
   private dangerDropTimer?: Phaser.Time.TimerEvent;
   private hitCooldownUntil = 0;
   private nextShotAt = 0;
+  private ammo = MAGAZINE_SIZE;
+  private reloading = false;
+  private reloadStartedAt = 0;
+  private reloadEndsAt = 0;
   private shotDirectionX = 0;
   private shotDirectionY = -1;
   private guideReadyAt = 0;
@@ -60,6 +69,7 @@ export class GameScene extends Phaser.Scene {
   private guidePath?: Phaser.GameObjects.Graphics;
   private guideHideTimer?: Phaser.Time.TimerEvent;
   private guidePathPoints: Array<{ row: number; column: number }> = [];
+  private reloadGauge?: Phaser.GameObjects.Graphics;
 
   constructor() {
     super('GameScene');
@@ -76,6 +86,10 @@ export class GameScene extends Phaser.Scene {
     this.warpReadyAt = 0;
     this.hitCooldownUntil = 0;
     this.nextShotAt = 0;
+    this.ammo = MAGAZINE_SIZE;
+    this.reloading = false;
+    this.reloadStartedAt = 0;
+    this.reloadEndsAt = 0;
     this.shotDirectionX = 0;
     this.shotDirectionY = -1;
     this.guideReadyAt = 0;
@@ -105,6 +119,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.updatePlayer(time);
+    this.updateReload(time);
     this.fireWeapon(time);
     this.updateGuideSkill(time);
     this.recycleCars();
@@ -155,10 +170,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createWorld(): void {
-    const { width, height } = this.scale;
-      this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0x000000);
-      this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xffffff);
-      this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xffffff);
+    const { height } = this.scale;
+    this.add.rectangle(SIDEBAR_WIDTH / 2, height / 2, SIDEBAR_WIDTH, height, 0x172436)
+      .setScrollFactor(0)
+      .setDepth(900);
+    this.add.rectangle(SIDEBAR_WIDTH, height / 2, 4, height, 0xffffff)
+      .setScrollFactor(0)
+      .setDepth(901);
+    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0x000000);
+    this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xffffff);
+    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xffffff);
 
     this.player = this.physics.add.sprite(WORLD_SIZE / 2, WORLD_SIZE - 80, 'player');
     this.player.setCollideWorldBounds(true);
@@ -180,20 +201,20 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
 
-    this.hud = this.add.text(24, 20, '', {
+    this.hud = this.add.text(20, 28, '', {
       fontFamily: 'sans-serif',
-      fontSize: '22px',
+      fontSize: '18px',
       color: '#ffffff',
       backgroundColor: '#172436',
-      padding: { x: 14, y: 10 },
-    });
-    this.banner = this.add.text(width / 2, height / 2, '', {
+      padding: { x: 10, y: 12 },
+      wordWrap: { width: SIDEBAR_WIDTH - 40 },
+    }).setScrollFactor(0).setDepth(1000);
+    this.banner = this.add.text(SIDEBAR_WIDTH + STAGE_VIEWPORT_WIDTH / 2, height / 2, '', {
       fontFamily: 'sans-serif',
       fontSize: '54px',
       color: '#ffffff',
       fontStyle: 'bold',
     }).setOrigin(0.5).setAlpha(0);
-    this.hud.setScrollFactor(0);
     this.banner.setScrollFactor(0);
   }
 
@@ -206,6 +227,7 @@ export class GameScene extends Phaser.Scene {
     this.shiftKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.fireKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
+    this.reloadKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.guideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G);
     this.escKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     keyboard.addCapture([
@@ -217,6 +239,7 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.SPACE,
       Phaser.Input.Keyboard.KeyCodes.F,
       Phaser.Input.Keyboard.KeyCodes.G,
+      Phaser.Input.Keyboard.KeyCodes.R,
     ]);
   }
 
@@ -235,6 +258,11 @@ export class GameScene extends Phaser.Scene {
     this.bombs.clear(true, true);
     this.bullets.clear(true, true);
     this.carsSpawned = 0;
+    this.ammo = MAGAZINE_SIZE;
+    this.reloading = false;
+    this.reloadGauge?.destroy();
+    this.reloadGauge = undefined;
+    this.guideHideTimer?.remove();
     this.guidePath?.destroy();
     this.guidePath = undefined;
     this.guideHideTimer?.remove();
@@ -298,15 +326,23 @@ export class GameScene extends Phaser.Scene {
     const baseSpeed = time < this.speedBoostUntil ? 330 : 210;
     if (this.cursors.up.isDown) {
       this.player.setVelocityY(-baseSpeed);
+      this.shotDirectionX = 0;
+      this.shotDirectionY = -1;
     } else if (this.cursors.down.isDown) {
       this.player.setVelocityY(baseSpeed);
+      this.shotDirectionX = 0;
+      this.shotDirectionY = 1;
     } else {
       this.player.setVelocityY(0);
     }
     if (this.cursors.left.isDown) {
       this.player.setVelocityX(-baseSpeed);
+      this.shotDirectionX = -1;
+      this.shotDirectionY = 0;
     } else if (this.cursors.right.isDown) {
       this.player.setVelocityX(baseSpeed);
+      this.shotDirectionX = 1;
+      this.shotDirectionY = 0;
     } else {
       this.player.setVelocityX(0);
     }
@@ -323,12 +359,75 @@ export class GameScene extends Phaser.Scene {
   }
 
   private fireWeapon(time: number): void {
+    if (this.reloading) {
+      return;
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.reloadKey) || this.ammo <= 0) {
+      this.startReload(time);
+      return;
+    }
     if (!this.fireKey.isDown || time < this.nextShotAt) {
       return;
     }
-    const bullet = this.bullets.create(this.player.x, this.player.y - 34, 'bullet') as Phaser.Physics.Arcade.Sprite;
-    bullet.setVelocityY(-760);
+    const bullet = this.bullets.create(
+      this.player.x + this.shotDirectionX * 28,
+      this.player.y + this.shotDirectionY * 28,
+      'bullet',
+    ) as Phaser.Physics.Arcade.Sprite;
+    bullet.setVelocity(this.shotDirectionX * 760, this.shotDirectionY * 760);
+    bullet.setAngle(this.shotDirectionX !== 0 ? (this.shotDirectionX > 0 ? 90 : -90) : 0);
+    this.ammo -= 1;
     this.nextShotAt = time + BULLET_FIRE_INTERVAL_MS;
+  }
+
+  private startReload(time: number): void {
+    if (this.reloading) {
+      return;
+    }
+    this.reloading = true;
+    this.reloadStartedAt = time;
+    this.reloadEndsAt = time + RELOAD_DURATION_MS;
+    this.reloadGauge = this.add.graphics().setScrollFactor(0).setDepth(20);
+  }
+
+  private updateReload(time: number): void {
+    if (!this.reloading) {
+      return;
+    }
+    const progress = Phaser.Math.Clamp(
+      (time - this.reloadStartedAt) / RELOAD_DURATION_MS,
+      0,
+      1,
+    );
+    const centerX = SIDEBAR_WIDTH + STAGE_VIEWPORT_WIDTH / 2;
+    const centerY = this.scale.height / 2;
+    const radius = 58;
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + Math.PI * 2 * progress;
+    this.reloadGauge?.clear();
+    this.reloadGauge?.lineStyle(8, 0x333333, 0.95);
+    this.reloadGauge?.strokeCircle(centerX, centerY, radius);
+    if (progress > 0) {
+      this.reloadGauge?.lineStyle(10, 0xffffff, 1);
+      this.reloadGauge?.beginPath();
+      for (let segment = 0; segment <= 32 * progress; segment += 1) {
+        const angle = startAngle + (endAngle - startAngle) * (segment / (32 * progress));
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
+        if (segment === 0) {
+          this.reloadGauge?.moveTo(x, y);
+        } else {
+          this.reloadGauge?.lineTo(x, y);
+        }
+      }
+      this.reloadGauge?.strokePath();
+    }
+    if (time >= this.reloadEndsAt) {
+      this.ammo = MAGAZINE_SIZE;
+      this.reloading = false;
+      this.reloadGauge?.destroy();
+      this.reloadGauge = undefined;
+    }
   }
 
   private updateGuideSkill(time: number): void {
@@ -511,7 +610,7 @@ export class GameScene extends Phaser.Scene {
   private recycleBullets(): void {
     for (const child of this.bullets.children) {
       const bullet = child as Phaser.Physics.Arcade.Sprite;
-      if (bullet.y < -40) {
+      if (bullet.x < -40 || bullet.x > WORLD_SIZE + 40 || bullet.y < -40 || bullet.y > WORLD_SIZE + 40) {
         bullet.destroy();
       }
     }
@@ -582,18 +681,19 @@ export class GameScene extends Phaser.Scene {
       this.dangerZone = undefined;
       this.dangerDropTimer = undefined;
       zone.destroy();
-      this.dropBomb(x, y);
+      this.dropBomb();
     });
   }
 
-  private dropBomb(x: number, targetY: number): void {
+  private dropBomb(): void {
     const config = ROUND_CONFIGS[this.round - 1];
     const bombCount = config?.bombCount ?? 1;
     for (let index = 0; index < bombCount; index += 1) {
-      const offsetX = (index - (bombCount - 1) / 2) * 72;
-      const bomb = this.bombs.create(x + offsetX, 45, 'bomb') as Phaser.Physics.Arcade.Sprite;
+      const bombX = Phaser.Math.Between(100, WORLD_SIZE - 100);
+      const bombTargetY = Phaser.Math.Between(160, WORLD_SIZE - 160);
+      const bomb = this.bombs.create(bombX, 45, 'bomb') as Phaser.Physics.Arcade.Sprite;
       bomb.setVelocity(0, 500);
-      bomb.setData('targetY', targetY + (index % 2 === 0 ? 0 : 28));
+      bomb.setData('targetY', bombTargetY);
     }
   }
 
@@ -677,6 +777,7 @@ export class GameScene extends Phaser.Scene {
     this.bullets.clear(true, true);
     this.guidePath?.destroy();
     this.guideHideTimer?.remove();
+    this.reloadGauge?.destroy();
     this.player.setVelocity(0, 0);
     this.scene.start('ResultScene', {
       totalSeconds: this.totalSeconds,
@@ -708,11 +809,17 @@ export class GameScene extends Phaser.Scene {
       `ラウンド ${this.round} / 3`,
       `残り時間  ${Math.max(0, ROUND_TIME_LIMIT_SECONDS - this.roundSeconds).toFixed(1)} 秒`,
       `スコア ${this.score}`,
+      `弾薬  ${this.reloading ? 'リロード中' : `${this.ammo} / ${MAGAZINE_SIZE}`}`,
       `衝突  ${this.hits} / 2`,
-      `加速 ${boost > 0 ? `${boost.toFixed(1)}秒` : '準備完了'}`,
-      `ワープ ${warp > 0 ? `${warp.toFixed(1)}秒` : '準備完了'}`,
-      `道案内 ${guide > 0 ? `${guide.toFixed(1)}秒` : '準備完了'}`,
-      '移動: 矢印キー   F: 連射   G: 5秒道案内   赤い警告ゾーン: 2秒後に爆弾',
+      '',
+      '[SHIFT] 加速',
+      `  ${boost > 0 ? `あと ${boost.toFixed(1)}秒` : '準備完了'}`,
+      '[SPACE] ワープ',
+      `  ${warp > 0 ? `あと ${warp.toFixed(1)}秒` : '準備完了'}`,
+      '[G] 道案内（5秒）',
+      `  ${guide > 0 ? `あと ${guide.toFixed(1)}秒` : '準備完了'}`,
+      '[F] 連射   [R] リロード',
+      '矢印キー: 移動',
     ]);
   }
 }
