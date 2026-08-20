@@ -16,10 +16,10 @@ export class ResultScene extends Phaser.Scene {
   create(data: ResultData): void {
     const { width, height } = this.scale;
     const won = data.won;
-    const title = won ? 'クリア！' : 'ゲームオーバー';
-    const color = won ? '#8de0a8' : '#ff8f8f';
+      const title = won ? 'クリア！' : 'ゲームオーバー';
+      const color = '#ffffff';
 
-    this.add.rectangle(width / 2, height / 2, width, height, won ? 0x12352d : 0x3a202b);
+      this.add.rectangle(width / 2, height / 2, width, height, 0x000000);
     this.add.text(width / 2, 190, title, {
       fontFamily: 'sans-serif',
       fontSize: '64px',
@@ -34,7 +34,7 @@ export class ResultScene extends Phaser.Scene {
     this.add.text(width / 2, 385, `スコア  ${data.score}`, {
       fontFamily: 'sans-serif',
       fontSize: '26px',
-      color: '#d7e2ee',
+      color: '#ffffff',
     }).setOrigin(0.5);
     const prompt = this.add.text(width / 2, 550, 'Enterキーでタイトルへ', {
       fontFamily: 'sans-serif',

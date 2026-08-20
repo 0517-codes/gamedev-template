@@ -6,7 +6,7 @@ import { TitleScene } from './scenes/TitleScene';
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container',
-  backgroundColor: '#102033',
+  backgroundColor: '#000000',
   physics: {
     default: 'arcade',
     arcade: {

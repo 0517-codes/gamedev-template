@@ -10,18 +10,19 @@ type RoundConfig = {
 };
 
 const ROUND_CONFIGS: RoundConfig[] = [
-  { carSpeed: 190, spawnDelay: 1250, laneCount: 4, bombDelay: 6200, bombCount: 2, mazeWalls: 5 },
-  { carSpeed: 250, spawnDelay: 950, laneCount: 5, bombDelay: 5000, bombCount: 3, mazeWalls: 7 },
-  { carSpeed: 315, spawnDelay: 700, laneCount: 6, bombDelay: 3900, bombCount: 4, mazeWalls: 9 },
+  { carSpeed: 190, spawnDelay: 1250, laneCount: 4, bombDelay: 6200, bombCount: 5, mazeWalls: 5 },
+  { carSpeed: 250, spawnDelay: 950, laneCount: 5, bombDelay: 5000, bombCount: 8, mazeWalls: 7 },
+  { carSpeed: 315, spawnDelay: 700, laneCount: 6, bombDelay: 3900, bombCount: 11, mazeWalls: 9 },
 ];
-const ROUND_TIME_LIMIT_SECONDS = 30;
+const ROUND_TIME_LIMIT_SECONDS = 180;
 const CARS_PER_ROUND = 200;
 const CAR_SPAWN_INTERVAL_MS = (ROUND_TIME_LIMIT_SECONDS * 1000) / CARS_PER_ROUND;
 const BULLET_FIRE_INTERVAL_MS = 120;
+const GUIDE_DISPLAY_MS = 5000;
+const GUIDE_COOLDOWN_MS = 15000;
 const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
 const MAZE_CELL_SIZE = 40;
-const MAZE_CORRIDOR_WIDTH = 2;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
 
 export class GameScene extends Phaser.Scene {
@@ -34,6 +35,7 @@ export class GameScene extends Phaser.Scene {
   private shiftKey!: Phaser.Input.Keyboard.Key;
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private fireKey!: Phaser.Input.Keyboard.Key;
+  private guideKey!: Phaser.Input.Keyboard.Key;
   private escKey!: Phaser.Input.Keyboard.Key;
   private round = 1;
   private hits = 0;
@@ -52,7 +54,11 @@ export class GameScene extends Phaser.Scene {
   private dangerDropTimer?: Phaser.Time.TimerEvent;
   private hitCooldownUntil = 0;
   private nextShotAt = 0;
+  private guideReadyAt = 0;
   private dangerZone?: Phaser.GameObjects.Rectangle;
+  private guidePath?: Phaser.GameObjects.Graphics;
+  private guideHideTimer?: Phaser.Time.TimerEvent;
+  private guidePathPoints: Array<{ row: number; column: number }> = [];
 
   constructor() {
     super('GameScene');
@@ -69,6 +75,7 @@ export class GameScene extends Phaser.Scene {
     this.warpReadyAt = 0;
     this.hitCooldownUntil = 0;
     this.nextShotAt = 0;
+    this.guideReadyAt = 0;
     this.paused = false;
     this.transitioning = false;
     this.createTextures();
@@ -96,6 +103,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.updatePlayer(time);
     this.fireWeapon(time);
+    this.updateGuideSkill(time);
     this.recycleCars();
     this.recycleBullets();
     this.updateBombs();
@@ -145,9 +153,9 @@ export class GameScene extends Phaser.Scene {
 
   private createWorld(): void {
     const { width, height } = this.scale;
-    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0x102033);
-    this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0x23533f);
-    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0x23533f);
+      this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0x000000);
+      this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xffffff);
+      this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xffffff);
 
     this.player = this.physics.add.sprite(WORLD_SIZE / 2, WORLD_SIZE - 80, 'player');
     this.player.setCollideWorldBounds(true);
@@ -179,7 +187,7 @@ export class GameScene extends Phaser.Scene {
     this.banner = this.add.text(width / 2, height / 2, '', {
       fontFamily: 'sans-serif',
       fontSize: '54px',
-      color: '#f7d774',
+      color: '#ffffff',
       fontStyle: 'bold',
     }).setOrigin(0.5).setAlpha(0);
     this.hud.setScrollFactor(0);
@@ -195,6 +203,7 @@ export class GameScene extends Phaser.Scene {
     this.shiftKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.fireKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
+    this.guideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G);
     this.escKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     keyboard.addCapture([
       Phaser.Input.Keyboard.KeyCodes.UP,
@@ -204,6 +213,7 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.ESC,
       Phaser.Input.Keyboard.KeyCodes.SPACE,
       Phaser.Input.Keyboard.KeyCodes.F,
+      Phaser.Input.Keyboard.KeyCodes.G,
     ]);
   }
 
@@ -222,6 +232,10 @@ export class GameScene extends Phaser.Scene {
     this.bombs.clear(true, true);
     this.bullets.clear(true, true);
     this.carsSpawned = 0;
+    this.guidePath?.destroy();
+    this.guidePath = undefined;
+    this.guideHideTimer?.remove();
+    this.guideHideTimer = undefined;
     this.walls.clear(true, true);
     this.createMaze(config.mazeWalls);
     this.dangerZone?.destroy();
@@ -263,11 +277,18 @@ export class GameScene extends Phaser.Scene {
     }
     const lane = Phaser.Math.Between(0, config.laneCount - 1);
     const laneHeight = (WORLD_SIZE - 160) / config.laneCount;
-    const y = 120 + lane * laneHeight + laneHeight / 2;
+    const y = Phaser.Math.Between(
+      Math.floor(120 + lane * laneHeight + 20),
+      Math.floor(120 + (lane + 1) * laneHeight - 20),
+    );
     const fromLeft = Phaser.Math.Between(0, 1) === 0;
-    const x = fromLeft ? 70 : WORLD_SIZE - 70;
+    const x = Phaser.Math.Between(40, WORLD_SIZE - 40);
     const car = this.cars.create(x, y, 'car') as Phaser.Physics.Arcade.Sprite;
-    car.setVelocityX(fromLeft ? config.carSpeed : -config.carSpeed);
+    const speed = Phaser.Math.Between(
+      Math.floor(config.carSpeed * 0.7),
+      Math.ceil(config.carSpeed * 1.3),
+    );
+    car.setVelocityX(fromLeft ? speed : -speed);
     car.setFlipX(!fromLeft);
     car.setData('direction', fromLeft ? 1 : -1);
     this.carsSpawned += 1;
@@ -310,64 +331,166 @@ export class GameScene extends Phaser.Scene {
     this.nextShotAt = time + BULLET_FIRE_INTERVAL_MS;
   }
 
+  private updateGuideSkill(time: number): void {
+    if (Phaser.Input.Keyboard.JustDown(this.guideKey) && time >= this.guideReadyAt) {
+      this.showGuidePath();
+      this.guideReadyAt = time + GUIDE_COOLDOWN_MS;
+    }
+  }
+
+  private showGuidePath(): void {
+    this.guidePath?.destroy();
+    this.guideHideTimer?.remove();
+    this.guidePath = this.add.graphics().setDepth(10);
+    this.guidePath.lineStyle(8, 0x00e5ff, 0.9);
+    this.guidePath.beginPath();
+    this.guidePathPoints.forEach((point, index) => {
+      const x = point.column * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
+      const y = point.row * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
+      if (index === 0) {
+        this.guidePath?.moveTo(x, y);
+      } else {
+        this.guidePath?.lineTo(x, y);
+      }
+    });
+    this.guidePath.strokePath();
+    this.guideHideTimer = this.time.delayedCall(GUIDE_DISPLAY_MS, () => {
+      this.guidePath?.destroy();
+      this.guidePath = undefined;
+      this.guideHideTimer = undefined;
+    });
+  }
+
   private createMaze(difficulty: number): void {
-    const mazeLeft = 0;
-    const mazeTop = 0;
     const columns = MAZE_COLUMNS;
     const rows = MAZE_ROWS;
     const cellWidth = MAZE_CELL_SIZE;
     const cellHeight = MAZE_CELL_SIZE;
     const wallThickness = 8;
-    const pathColumns = [Math.floor(columns / 2)];
+    const openRight = Array.from({ length: rows }, () => Array(columns - 1).fill(false));
+    const openDown = Array.from({ length: rows - 1 }, () => Array(columns).fill(false));
+    const visited = Array.from({ length: rows }, () => Array(columns).fill(false));
+    const startRow = rows - 1;
+    const startColumn = Math.floor(columns / 2);
+    const stack: Array<{ row: number; column: number }> = [{ row: startRow, column: startColumn }];
+    visited[startRow][startColumn] = true;
 
-    for (let row = 1; row < rows; row += 1) {
-      const previousColumn = pathColumns[row - 1] ?? Math.floor(columns / 2);
-      const direction = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
-      pathColumns.push(Phaser.Math.Clamp(previousColumn + direction, 1, columns - MAZE_CORRIDOR_WIDTH - 1));
+    while (stack.length > 0) {
+      const current = stack[stack.length - 1];
+      const neighbors = [
+        { row: current.row - 1, column: current.column, direction: 'up' },
+        { row: current.row + 1, column: current.column, direction: 'down' },
+        { row: current.row, column: current.column - 1, direction: 'left' },
+        { row: current.row, column: current.column + 1, direction: 'right' },
+      ].filter((neighbor) => (
+        neighbor.row >= 0
+        && neighbor.row < rows
+        && neighbor.column >= 0
+        && neighbor.column < columns
+        && !visited[neighbor.row][neighbor.column]
+      ));
+
+      if (neighbors.length === 0) {
+        stack.pop();
+        continue;
+      }
+
+      const neighbor = neighbors[Phaser.Math.Between(0, neighbors.length - 1)];
+      visited[neighbor.row][neighbor.column] = true;
+      if (neighbor.direction === 'up') {
+        openDown[neighbor.row][neighbor.column] = true;
+      } else if (neighbor.direction === 'down') {
+        openDown[current.row][current.column] = true;
+      } else if (neighbor.direction === 'left') {
+        openRight[neighbor.row][neighbor.column] = true;
+      } else {
+        openRight[current.row][current.column] = true;
+      }
+      stack.push({ row: neighbor.row, column: neighbor.column });
     }
 
-    for (let row = 1; row < rows; row += 1) {
-      const pathColumn = pathColumns[row] ?? Math.floor(columns / 2);
-      let secondaryGap = Phaser.Math.Between(0, columns - 1);
-      while (secondaryGap >= pathColumn && secondaryGap < pathColumn + MAZE_CORRIDOR_WIDTH) {
-        secondaryGap = Phaser.Math.Between(0, columns - 1);
-      }
-      for (let column = 0; column < columns; column += 1) {
-        const isPath = column >= pathColumn
-          && column < pathColumn + MAZE_CORRIDOR_WIDTH;
-        const isSecondaryGap = column === secondaryGap;
-        if (!isPath && !isSecondaryGap) {
+    for (let opening = 0; opening < difficulty; opening += 1) {
+      const row = Phaser.Math.Between(0, rows - 1);
+      const column = Phaser.Math.Between(0, columns - 2);
+      openRight[row][column] = true;
+    }
+
+    this.guidePathPoints = this.findMazePath(openRight, openDown);
+
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns - 1; column += 1) {
+        if (!openRight[row][column]) {
           this.addMazeWall(
-            mazeLeft + column * cellWidth + cellWidth / 2,
-            mazeTop + row * cellHeight,
+            (column + 1) * cellWidth,
+            row * cellHeight + cellHeight / 2,
+            wallThickness,
+            cellHeight + 2,
+          );
+        }
+      }
+    }
+
+    for (let row = 0; row < rows - 1; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        if (!openDown[row][column]) {
+          this.addMazeWall(
+            column * cellWidth + cellWidth / 2,
+            (row + 1) * cellHeight,
             cellWidth + 2,
             wallThickness,
           );
         }
       }
     }
+  }
 
-    for (let barrier = 0; barrier < difficulty; barrier += 1) {
-      const row = Phaser.Math.Between(1, rows - 1);
-      const column = Phaser.Math.Between(2, columns - 3);
-      const pathBefore = pathColumns[row - 1] ?? Math.floor(columns / 2);
-      const pathAfter = pathColumns[row] ?? pathBefore;
-      if (
-        column >= pathBefore - 1
-        && column <= pathBefore + MAZE_CORRIDOR_WIDTH
-        || column >= pathAfter - 1
-        && column <= pathAfter + MAZE_CORRIDOR_WIDTH
-      ) {
-        continue;
+  private findMazePath(
+    openRight: boolean[][],
+    openDown: boolean[][],
+  ): Array<{ row: number; column: number }> {
+    const start = { row: MAZE_ROWS - 1, column: Math.floor(MAZE_COLUMNS / 2) };
+    const goal = { row: 0, column: Math.floor(MAZE_COLUMNS / 2) };
+    const keyFor = (cell: { row: number; column: number }): string => `${cell.row},${cell.column}`;
+    const queue: Array<{ row: number; column: number }> = [start];
+    const previous = new Map<string, { row: number; column: number } | undefined>();
+    previous.set(keyFor(start), undefined);
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) {
+        break;
       }
-      const wallHeight = cellHeight * 0.75;
-      this.addMazeWall(
-        mazeLeft + column * cellWidth,
-        mazeTop + row * cellHeight - cellHeight / 2,
-        wallThickness,
-        wallHeight,
-      );
+      if (current.row === goal.row && current.column === goal.column) {
+        break;
+      }
+      const neighbors: Array<{ row: number; column: number }> = [];
+      if (current.row > 0 && openDown[current.row - 1][current.column]) {
+        neighbors.push({ row: current.row - 1, column: current.column });
+      }
+      if (current.row < MAZE_ROWS - 1 && openDown[current.row][current.column]) {
+        neighbors.push({ row: current.row + 1, column: current.column });
+      }
+      if (current.column > 0 && openRight[current.row][current.column - 1]) {
+        neighbors.push({ row: current.row, column: current.column - 1 });
+      }
+      if (current.column < MAZE_COLUMNS - 1 && openRight[current.row][current.column]) {
+        neighbors.push({ row: current.row, column: current.column + 1 });
+      }
+      for (const neighbor of neighbors) {
+        if (!previous.has(keyFor(neighbor))) {
+          previous.set(keyFor(neighbor), current);
+          queue.push(neighbor);
+        }
+      }
     }
+
+    const path: Array<{ row: number; column: number }> = [];
+    let current: { row: number; column: number } | undefined = goal;
+    while (current) {
+      path.unshift(current);
+      current = previous.get(keyFor(current));
+    }
+    return path;
   }
 
   private addMazeWall(x: number, y: number, width: number, height: number): void {
@@ -552,6 +675,8 @@ export class GameScene extends Phaser.Scene {
     this.dangerDropTimer = undefined;
     this.bombs.clear(true, true);
     this.bullets.clear(true, true);
+    this.guidePath?.destroy();
+    this.guideHideTimer?.remove();
     this.player.setVelocity(0, 0);
     this.scene.start('ResultScene', {
       totalSeconds: this.totalSeconds,
@@ -578,13 +703,16 @@ export class GameScene extends Phaser.Scene {
   private updateHud(time: number): void {
     const boost = Math.max(0, (this.speedBoostUntil - time) / 1000);
     const warp = Math.max(0, (this.warpReadyAt - time) / 1000);
+    const guide = Math.max(0, (this.guideReadyAt - time) / 1000);
     this.hud.setText([
       `ラウンド ${this.round} / 3`,
       `残り時間  ${Math.max(0, ROUND_TIME_LIMIT_SECONDS - this.roundSeconds).toFixed(1)} 秒`,
       `スコア ${this.score}`,
       `衝突  ${this.hits} / 2`,
-      `加速 ${boost > 0 ? `${boost.toFixed(1)}秒` : '準備完了'}   ワープ ${warp > 0 ? `${warp.toFixed(1)}秒` : '準備完了'}`,
-      '移動: 矢印キー   F: 連射   赤い警告ゾーン: 2秒後に爆弾',
+      `加速 ${boost > 0 ? `${boost.toFixed(1)}秒` : '準備完了'}`,
+      `ワープ ${warp > 0 ? `${warp.toFixed(1)}秒` : '準備完了'}`,
+      `道案内 ${guide > 0 ? `${guide.toFixed(1)}秒` : '準備完了'}`,
+      '移動: 矢印キー   F: 連射   G: 5秒道案内   赤い警告ゾーン: 2秒後に爆弾',
     ]);
   }
 }
