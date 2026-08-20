@@ -36,7 +36,7 @@ export class TitleScene extends Phaser.Scene {
     const prompt = this.add.text(width / 2, 560, 'Enterキーで開始', {
       fontFamily: 'sans-serif',
       fontSize: '30px',
-      color: '#ffffff',
+      color: '#000000',
     }).setOrigin(0.5);
 
     this.tweens.add({
