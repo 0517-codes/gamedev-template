@@ -27,6 +27,9 @@ const MAZE_CELL_SIZE = 40;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
 const SIDEBAR_WIDTH = 256;
 const STAGE_VIEWPORT_WIDTH = 1024;
+const START_COLUMN = Math.floor(MAZE_COLUMNS / 2);
+const START_X = START_COLUMN * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
+const START_Y = WORLD_SIZE - MAZE_CELL_SIZE + 8;
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -181,7 +184,7 @@ export class GameScene extends Phaser.Scene {
     this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xbdada1);
     this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xbdada1);
 
-    this.player = this.physics.add.sprite(WORLD_SIZE / 2, WORLD_SIZE - 80, 'player');
+    this.player = this.physics.add.sprite(START_X, START_Y, 'player');
     this.player.setCollideWorldBounds(true);
     if (this.player.body) {
       this.player.body.setSize(24, 28, true);
@@ -252,7 +255,7 @@ export class GameScene extends Phaser.Scene {
     this.hits = 0;
     this.hitCooldownUntil = 0;
     this.roundSeconds = 0;
-    this.player.setPosition(WORLD_SIZE / 2, WORLD_SIZE - 80);
+    this.player.setPosition(START_X, START_Y);
     this.player.setVelocity(0, 0);
     this.cars.clear(true, true);
     this.bombs.clear(true, true);
@@ -417,7 +420,7 @@ export class GameScene extends Phaser.Scene {
     this.reloadGauge?.lineStyle(8, 0x333333, 0.95);
     this.reloadGauge?.strokeCircle(centerX, centerY, radius);
     if (progress > 0) {
-      this.reloadGauge?.lineStyle(10, 0xec8175, 1);
+      this.reloadGauge?.lineStyle(10, 0xbdada1, 1);
       this.reloadGauge?.beginPath();
       for (let segment = 0; segment <= 32 * progress; segment += 1) {
         const angle = startAngle + (endAngle - startAngle) * (segment / (32 * progress));
@@ -479,7 +482,7 @@ export class GameScene extends Phaser.Scene {
     const openDown = Array.from({ length: rows - 1 }, () => Array(columns).fill(false));
     const visited = Array.from({ length: rows }, () => Array(columns).fill(false));
     const startRow = rows - 1;
-    const startColumn = Math.floor(columns / 2);
+    const startColumn = START_COLUMN;
     const stack: Array<{ row: number; column: number }> = [{ row: startRow, column: startColumn }];
     visited[startRow][startColumn] = true;
 

@@ -17,7 +17,7 @@ export class ResultScene extends Phaser.Scene {
     const { width, height } = this.scale;
     const won = data.won;
       const title = won ? 'クリア！' : 'ゲームオーバー';
-      const color = '#F4AF91';
+      const color = '#BDADA1';
 
       this.add.rectangle(width / 2, height / 2, width, height, 0x26405f);
     this.add.text(width / 2, 190, title, {
