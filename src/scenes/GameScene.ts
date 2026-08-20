@@ -70,7 +70,6 @@ export class GameScene extends Phaser.Scene {
   private guideHideTimer?: Phaser.Time.TimerEvent;
   private guidePathPoints: Array<{ row: number; column: number }> = [];
   private reloadGauge?: Phaser.GameObjects.Graphics;
-  private skillPanel!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super('GameScene');
@@ -172,7 +171,7 @@ export class GameScene extends Phaser.Scene {
 
   private createWorld(): void {
     const { height } = this.scale;
-    this.add.rectangle(SIDEBAR_WIDTH / 2, height / 2, SIDEBAR_WIDTH, height, 0xf4f4f1)
+    this.add.rectangle(SIDEBAR_WIDTH / 2, height / 2, SIDEBAR_WIDTH, height, 0x172436)
       .setScrollFactor(0)
       .setDepth(900);
     this.add.rectangle(SIDEBAR_WIDTH, height / 2, 4, height, 0xffffff)
@@ -202,61 +201,21 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
 
-    this.skillPanel = this.add.graphics().setScrollFactor(0).setDepth(950);
-    this.skillPanel.fillStyle(0xffffff, 1);
-    this.skillPanel.fillRoundedRect(14, 300, SIDEBAR_WIDTH - 28, 430, 8);
-    this.skillPanel.lineStyle(2, 0x111111, 1);
-    this.skillPanel.strokeRoundedRect(14, 300, SIDEBAR_WIDTH - 28, 430, 8);
-    for (const y of [350, 435, 520, 605]) {
-      this.skillPanel.fillStyle(0x111111, 1);
-      this.skillPanel.fillRoundedRect(30, y, 48, 40, 6);
-    }
-    this.add.text(28, 22, 'ロードランナー', {
+    this.hud = this.add.text(20, 28, '', {
       fontFamily: 'sans-serif',
-      fontSize: '24px',
-      color: '#111111',
-      fontStyle: 'bold',
-    }).setScrollFactor(0).setDepth(1001);
-    this.add.text(28, 65, '作戦情報', {
-      fontFamily: 'sans-serif',
-      fontSize: '14px',
-      color: '#555555',
-    }).setScrollFactor(0).setDepth(1001);
-    this.hud = this.add.text(28, 100, '', {
-      fontFamily: 'sans-serif',
-      fontSize: '16px',
-      color: '#111111',
-      lineSpacing: 3,
+      fontSize: '18px',
+      color: '#ffffff',
+      backgroundColor: '#172436',
+      padding: { x: 10, y: 12 },
       wordWrap: { width: SIDEBAR_WIDTH - 40 },
-    }).setScrollFactor(0).setDepth(1001);
-    const skillLabels = [
-      { key: 'SHIFT', name: '加速' },
-      { key: 'SPACE', name: 'ワープ' },
-      { key: 'G', name: '道案内' },
-      { key: 'F / R', name: '射撃 / リロード' },
-    ];
-    skillLabels.forEach((skill, index) => {
-      const y = 362 + index * 85;
-      this.add.text(39, y + 8, skill.key, {
-        fontFamily: 'sans-serif',
-        fontSize: skill.key === 'SPACE' ? '11px' : '14px',
-        color: '#ffffff',
-        fontStyle: 'bold',
-      }).setScrollFactor(0).setDepth(1002);
-      this.add.text(92, y - 2, skill.name, {
-        fontFamily: 'sans-serif',
-        fontSize: '16px',
-        color: '#111111',
-        fontStyle: 'bold',
-      }).setScrollFactor(0).setDepth(1002);
-    });
+    }).setScrollFactor(0).setDepth(1000);
     this.banner = this.add.text(SIDEBAR_WIDTH + STAGE_VIEWPORT_WIDTH / 2, height / 2, '', {
       fontFamily: 'sans-serif',
       fontSize: '54px',
       color: '#ffffff',
       fontStyle: 'bold',
     }).setOrigin(0.5).setAlpha(0);
-    this.banner.setScrollFactor(0).setDepth(1100);
+    this.banner.setScrollFactor(0);
   }
 
   private createInput(): void {
@@ -314,15 +273,12 @@ export class GameScene extends Phaser.Scene {
     this.dangerZone = undefined;
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
-    const startText = this.round === 1
-      ? 'ラウンド 1\n\n操作説明\n矢印キー: 移動\nF: 射撃　R: リロード\nSHIFT: 加速　SPACE: ワープ\nG: 道案内'
-      : `ラウンド ${this.round}`;
-    this.banner.setText(startText).setAlpha(0);
+    this.banner.setText(`ラウンド ${this.round}`).setAlpha(0);
     this.tweens.add({
       targets: this.banner,
       alpha: 1,
       duration: 350,
-      hold: this.round === 1 ? 2600 : 700,
+      hold: 700,
       yoyo: true,
       onComplete: () => {
         this.transitioning = false;
