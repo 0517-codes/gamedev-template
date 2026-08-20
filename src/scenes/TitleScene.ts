@@ -10,33 +10,33 @@ export class TitleScene extends Phaser.Scene {
   create(): void {
     const { width, height } = this.scale;
 
-      this.add.rectangle(width / 2, height / 2, width, height, 0x000000);
-      this.add.rectangle(width / 2, height * 0.72, width, 120, 0xffffff);
+      this.add.rectangle(width / 2, height / 2, width, height, 0xf4f4f1);
+      this.add.rectangle(width / 2, height * 0.72, width, 120, 0x111111);
     this.add.text(width / 2, 170, 'ロードランナー', {
       fontFamily: 'sans-serif',
       fontSize: '72px',
-      color: '#000000',
+      color: '#111111',
       fontStyle: 'bold',
     }).setOrigin(0.5);
     this.add.text(width / 2, 250, '3ラウンド  |  各ラウンド180秒', {
       fontFamily: 'sans-serif',
       fontSize: '22px',
-      color: '#000000',
+      color: '#555555',
     }).setOrigin(0.5);
     this.add.text(width / 2, 390, '矢印キー: 移動　 SHIFT: 加速　 SPACE: ワープ', {
       fontFamily: 'sans-serif',
       fontSize: '22px',
-      color: '#000000',
+      color: '#111111',
     }).setOrigin(0.5);
     this.add.text(width / 2, 435, 'F: 連射　 R: リロード　 G: 道案内', {
       fontFamily: 'sans-serif',
       fontSize: '22px',
-      color: '#000000',
+      color: '#111111',
     }).setOrigin(0.5);
     const prompt = this.add.text(width / 2, 560, 'Enterキーで開始', {
       fontFamily: 'sans-serif',
       fontSize: '30px',
-      color: '#000000',
+      color: '#ffffff',
     }).setOrigin(0.5);
 
     this.tweens.add({
