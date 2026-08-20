@@ -25,8 +25,8 @@ const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
 const MAZE_CELL_SIZE = 40;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
-const SIDEBAR_WIDTH = 280;
-const STAGE_VIEWPORT_WIDTH = 680;
+const SIDEBAR_WIDTH = 256;
+const STAGE_VIEWPORT_WIDTH = 1024;
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -163,7 +163,7 @@ export class GameScene extends Phaser.Scene {
     bulletGraphics.destroy();
 
     const wallGraphics = this.add.graphics();
-    wallGraphics.fillStyle(0x657386, 1);
+    wallGraphics.fillStyle(0xbdada1, 1);
     wallGraphics.fillRect(0, 0, 1, 1);
     wallGraphics.generateTexture('wall', 1, 1);
     wallGraphics.destroy();
@@ -171,15 +171,15 @@ export class GameScene extends Phaser.Scene {
 
   private createWorld(): void {
     const { height } = this.scale;
-    this.add.rectangle(SIDEBAR_WIDTH / 2, height / 2, SIDEBAR_WIDTH, height, 0x172436)
+    this.add.rectangle(SIDEBAR_WIDTH / 2, height / 2, SIDEBAR_WIDTH, height, 0x26405f)
       .setScrollFactor(0)
       .setDepth(900);
     this.add.rectangle(SIDEBAR_WIDTH, height / 2, 4, height, 0xffffff)
       .setScrollFactor(0)
       .setDepth(901);
-    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0x000000);
-    this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xffffff);
-    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xffffff);
+    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0xf1dfc5);
+    this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xbdada1);
+    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xbdada1);
 
     this.player = this.physics.add.sprite(WORLD_SIZE / 2, WORLD_SIZE - 80, 'player');
     this.player.setCollideWorldBounds(true);
@@ -205,7 +205,7 @@ export class GameScene extends Phaser.Scene {
       fontFamily: 'sans-serif',
       fontSize: '18px',
       color: '#ffffff',
-      backgroundColor: '#172436',
+      backgroundColor: '#26405F',
       padding: { x: 10, y: 12 },
       wordWrap: { width: SIDEBAR_WIDTH - 40 },
     }).setScrollFactor(0).setDepth(1000);
@@ -353,7 +353,16 @@ export class GameScene extends Phaser.Scene {
       this.speedBoostUntil = time + 3500;
     }
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && time >= this.warpReadyAt) {
-      this.player.y = Math.max(82, this.player.y - 125);
+      this.player.x = Phaser.Math.Clamp(
+        this.player.x - this.shotDirectionX * 125,
+        30,
+        WORLD_SIZE - 30,
+      );
+      this.player.y = Phaser.Math.Clamp(
+        this.player.y - this.shotDirectionY * 125,
+        82,
+        WORLD_SIZE - 82,
+      );
       this.warpReadyAt = time + 6000;
     }
   }
@@ -408,7 +417,7 @@ export class GameScene extends Phaser.Scene {
     this.reloadGauge?.lineStyle(8, 0x333333, 0.95);
     this.reloadGauge?.strokeCircle(centerX, centerY, radius);
     if (progress > 0) {
-      this.reloadGauge?.lineStyle(10, 0xffffff, 1);
+      this.reloadGauge?.lineStyle(10, 0xec8175, 1);
       this.reloadGauge?.beginPath();
       for (let segment = 0; segment <= 32 * progress; segment += 1) {
         const angle = startAngle + (endAngle - startAngle) * (segment / (32 * progress));

@@ -6,7 +6,7 @@ import { TitleScene } from './scenes/TitleScene';
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container',
-  backgroundColor: '#000000',
+  backgroundColor: '#F1DFC5',
   physics: {
     default: 'arcade',
     arcade: {
@@ -17,8 +17,8 @@ const config: Phaser.Types.Core.GameConfig = {
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 960,
-    height: 1280,
+    width: 1280,
+    height: 800,
   },
   scene: [TitleScene, GameScene, ResultScene],
 };
