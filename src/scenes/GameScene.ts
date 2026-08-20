@@ -14,6 +14,7 @@ const ROUND_CONFIGS: RoundConfig[] = [
   { carSpeed: 250, spawnDelay: 950, laneCount: 5, bombDelay: 5000, bombCount: 3, mazeWalls: 3 },
   { carSpeed: 315, spawnDelay: 700, laneCount: 6, bombDelay: 3900, bombCount: 4, mazeWalls: 4 },
 ];
+const TIME_LIMIT_SECONDS = 10;
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -64,6 +65,11 @@ export class GameScene extends Phaser.Scene {
     this.roundSeconds += seconds;
     this.totalSeconds += seconds;
     this.score += Math.floor(seconds * 10);
+    if (this.totalSeconds >= TIME_LIMIT_SECONDS) {
+      this.totalSeconds = TIME_LIMIT_SECONDS;
+      this.finishGame(false);
+      return;
+    }
     this.updatePlayer(time);
     this.recycleCars();
     this.updateBombs();
@@ -175,7 +181,7 @@ export class GameScene extends Phaser.Scene {
     this.dangerZone = undefined;
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
-    this.banner.setText(`ROUND ${this.round}`).setAlpha(0);
+    this.banner.setText(`ラウンド ${this.round}`).setAlpha(0);
     this.tweens.add({
       targets: this.banner,
       alpha: 1,
@@ -257,11 +263,19 @@ export class GameScene extends Phaser.Scene {
     const cellWidth = mazeWidth / columns;
     const cellHeight = mazeHeight / rows;
     const wallThickness = 12;
+    const pathColumns = [Math.floor(columns / 2)];
 
     for (let row = 1; row < rows; row += 1) {
-      const gap = (row * 3 + difficulty) % columns;
+      const previousColumn = pathColumns[row - 1] ?? Math.floor(columns / 2);
+      const direction = (row + difficulty) % 4 < 2 ? 1 : -1;
+      pathColumns.push(Phaser.Math.Clamp(previousColumn + direction, 1, columns - 2));
+    }
+
+    for (let row = 1; row < rows; row += 1) {
+      const pathColumn = pathColumns[row] ?? Math.floor(columns / 2);
+      const secondaryGap = (row * 3 + difficulty) % columns;
       for (let column = 0; column < columns; column += 1) {
-        if (column !== gap) {
+        if (column !== pathColumn && column !== secondaryGap) {
           this.addMazeWall(
             mazeLeft + column * cellWidth + cellWidth / 2,
             mazeTop + row * cellHeight,
@@ -275,6 +289,11 @@ export class GameScene extends Phaser.Scene {
     for (let barrier = 0; barrier < difficulty; barrier += 1) {
       const row = 1 + ((barrier * 2 + difficulty) % (rows - 1));
       const column = 2 + ((barrier * 4 + difficulty) % (columns - 4));
+      const pathBefore = pathColumns[row - 1] ?? Math.floor(columns / 2);
+      const pathAfter = pathColumns[row] ?? pathBefore;
+      if (Math.abs(column - pathBefore) <= 1 || Math.abs(column - pathAfter) <= 1) {
+        continue;
+      }
       const wallHeight = cellHeight * 0.75;
       this.addMazeWall(
         mazeLeft + column * cellWidth,
@@ -407,7 +426,7 @@ export class GameScene extends Phaser.Scene {
     this.dangerZone = undefined;
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
-    this.banner.setText(`ROUND ${this.round} CLEAR`).setAlpha(1);
+    this.banner.setText(`ラウンド ${this.round} クリア`).setAlpha(1);
     this.tweens.add({
       targets: this.banner,
       alpha: 0,
@@ -457,19 +476,19 @@ export class GameScene extends Phaser.Scene {
     if (this.dangerDropTimer) {
       this.dangerDropTimer.paused = this.paused;
     }
-    this.banner.setText(this.paused ? 'PAUSED' : '').setAlpha(this.paused ? 1 : 0);
+    this.banner.setText(this.paused ? 'ポーズ中' : '').setAlpha(this.paused ? 1 : 0);
   }
 
   private updateHud(time: number): void {
     const boost = Math.max(0, (this.speedBoostUntil - time) / 1000);
     const warp = Math.max(0, (this.warpReadyAt - time) / 1000);
     this.hud.setText([
-      `ROUND ${this.round} / 3`,
-      `TIME  ${this.totalSeconds.toFixed(1)} s`,
-      `SCORE ${this.score}`,
-      `HITS  ${this.hits} / 2`,
-      `BOOST ${boost > 0 ? `${boost.toFixed(1)}s` : 'READY'}   WARP ${warp > 0 ? `${warp.toFixed(1)}s` : 'READY'}`,
-      'MOVE  ARROW KEYS   RED ZONE: 2s WARNING',
+      `ラウンド ${this.round} / 3`,
+      `残り時間  ${Math.max(0, TIME_LIMIT_SECONDS - this.totalSeconds).toFixed(1)} 秒`,
+      `スコア ${this.score}`,
+      `衝突  ${this.hits} / 2`,
+      `加速 ${boost > 0 ? `${boost.toFixed(1)}秒` : '準備完了'}   ワープ ${warp > 0 ? `${warp.toFixed(1)}秒` : '準備完了'}`,
+      '移動: 矢印キー   赤い警告ゾーン: 2秒後に爆弾',
     ]);
   }
 }

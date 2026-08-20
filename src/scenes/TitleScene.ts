@@ -12,23 +12,23 @@ export class TitleScene extends Phaser.Scene {
 
     this.add.rectangle(width / 2, height / 2, width, height, 0x102033);
     this.add.rectangle(width / 2, height * 0.72, width, 120, 0x27364a);
-    this.add.text(width / 2, 170, 'ROAD RUNNER', {
+    this.add.text(width / 2, 170, 'ロードランナー', {
       fontFamily: 'sans-serif',
       fontSize: '72px',
       color: '#f7d774',
       fontStyle: 'bold',
     }).setOrigin(0.5);
-    this.add.text(width / 2, 250, '3 ROUNDS  |  CROSS THE ROAD', {
+    this.add.text(width / 2, 250, '3ラウンド  |  道路を渡れ', {
       fontFamily: 'sans-serif',
       fontSize: '22px',
       color: '#c9d6e6',
     }).setOrigin(0.5);
-    this.add.text(width / 2, 410, 'ARROW KEYS  Move     SHIFT  Speed boost     SPACE  Warp', {
+    this.add.text(width / 2, 410, '矢印キー  移動     SHIFT  加速     SPACE  ワープ', {
       fontFamily: 'sans-serif',
       fontSize: '24px',
       color: '#ffffff',
     }).setOrigin(0.5);
-    const prompt = this.add.text(width / 2, 560, 'PRESS ENTER TO START', {
+    const prompt = this.add.text(width / 2, 560, 'Enterキーで開始', {
       fontFamily: 'sans-serif',
       fontSize: '30px',
       color: '#f7d774',
