@@ -12,7 +12,7 @@ export class TitleScene extends Phaser.Scene {
 
       this.add.rectangle(width / 2, height / 2, width, height, 0xf1f1f1);
       this.add.rectangle(width / 2, height * 0.72, width, 120, 0x222222);
-    this.add.text(width / 2, 170, 'トラックに轢かれた少年は\n鬼畜迷路で無双する１', {
+    this.add.text(width / 2, 170, 'トラックに轢かれた少年は\n異世界でもトラックに轢かれる', {
       fontFamily: 'Georgia, serif',
       fontSize: '72px',
       color: '#222222',

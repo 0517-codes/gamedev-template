@@ -58,7 +58,9 @@ export class GameScene extends Phaser.Scene {
   private bombs!: Phaser.Physics.Arcade.Group;
   private bullets!: Phaser.Physics.Arcade.Group;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
+  private chests!: Phaser.Physics.Arcade.StaticGroup;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private shiftKey!: Phaser.Input.Keyboard.Key;
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private fireKey!: Phaser.Input.Keyboard.Key;
   private reloadKey!: Phaser.Input.Keyboard.Key;
@@ -133,6 +135,9 @@ export class GameScene extends Phaser.Scene {
   private dashMotion?: Phaser.Tweens.Tween;
   private startMarker?: Phaser.GameObjects.Arc;
   private startLabel?: Phaser.GameObjects.Text;
+  private chestLabel?: Phaser.GameObjects.Text;
+  private chestContents: SkillId[] = [];
+  private chestOpened = false;
 
   constructor() {
     super('GameScene');
@@ -253,6 +258,15 @@ export class GameScene extends Phaser.Scene {
     wallGraphics.fillRect(0, 0, 1, 1);
     wallGraphics.generateTexture('wall', 1, 1);
     wallGraphics.destroy();
+
+    const chestGraphics = this.add.graphics();
+    chestGraphics.fillStyle(0x8b4513, 1);
+    chestGraphics.fillRoundedRect(0, 10, 64, 36, 6);
+    chestGraphics.fillStyle(0xd4a017, 1);
+    chestGraphics.fillRect(0, 8, 64, 10);
+    chestGraphics.fillRect(28, 16, 8, 20);
+    chestGraphics.generateTexture('chest', 64, 46);
+    chestGraphics.destroy();
   }
 
   private createWorld(): void {
@@ -277,9 +291,11 @@ export class GameScene extends Phaser.Scene {
     this.bombs = this.physics.add.group({ allowGravity: false, immovable: true });
     this.bullets = this.physics.add.group({ allowGravity: false });
     this.walls = this.physics.add.staticGroup();
+    this.chests = this.physics.add.staticGroup();
     this.physics.add.overlap(this.player, this.cars, this.handleHit, undefined, this);
     this.physics.add.overlap(this.player, this.bombs, this.handleBombHit, undefined, this);
     this.physics.add.overlap(this.bullets, this.cars, this.handleBulletHit, undefined, this);
+    this.physics.add.overlap(this.player, this.chests, this.openChest, undefined, this);
     this.physics.add.collider(this.player, this.walls);
     this.physics.add.collider(this.cars, this.walls);
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
@@ -316,6 +332,7 @@ export class GameScene extends Phaser.Scene {
       throw new Error('Keyboard input is required.');
     }
     this.cursors = keyboard.createCursorKeys();
+    this.shiftKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.fireKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
     this.reloadKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
@@ -329,6 +346,7 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.DOWN,
       Phaser.Input.Keyboard.KeyCodes.LEFT,
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      Phaser.Input.Keyboard.KeyCodes.SHIFT,
       Phaser.Input.Keyboard.KeyCodes.ESC,
       Phaser.Input.Keyboard.KeyCodes.SPACE,
       Phaser.Input.Keyboard.KeyCodes.F,
@@ -392,6 +410,11 @@ export class GameScene extends Phaser.Scene {
     this.player.setScale(1);
     this.startMarker?.destroy();
     this.startLabel?.destroy();
+    this.chests.clear(true, true);
+    this.chestLabel?.destroy();
+    this.chestLabel = undefined;
+    this.chestContents = [];
+    this.chestOpened = false;
     this.walls.clear(true, true);
     this.createMaze(config.mazeWalls);
     this.startMarker = this.add.circle(START_X, START_Y, 18, 0xf1f1f1, 1)
@@ -524,6 +547,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.transitioning) {
       return;
     }
+    this.createChest();
     this.transitioning = false;
     this.spawnTimer = this.time.addEvent({
       delay: (ROUND_TIME_LIMIT_SECONDS * 1000) / config.carsPerRound,
@@ -537,6 +561,49 @@ export class GameScene extends Phaser.Scene {
       callback: this.showDangerZone,
       callbackScope: this,
     });
+  }
+
+  private createChest(): void {
+    this.chestContents = ([1, 2, 3] as SkillId[]).filter(
+      (skill) => skill !== this.selectedSkill,
+    );
+    this.chestOpened = false;
+    const chestX = START_X;
+    const chestY = START_Y - MAZE_CELL_SIZE - 12;
+    const chest = this.chests.create(chestX, chestY, 'chest') as Phaser.Physics.Arcade.Sprite;
+    chest.setDepth(8);
+    chest.refreshBody();
+    this.chestLabel = this.add.text(chestX, chestY - 50, '宝箱', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '18px',
+      color: '#222222',
+      backgroundColor: '#f1f1f1',
+      padding: { x: 5, y: 3 },
+    }).setOrigin(0.5).setDepth(9);
+  }
+
+  private openChest(): void {
+    if (this.chestOpened) {
+      return;
+    }
+    this.chestOpened = true;
+    this.chests.clear(true, true);
+    const contents = this.chestContents.map((skill) => this.getSkillName(skill)).join(' / ');
+    this.chestLabel?.setText(`宝箱の中身\n${contents}`);
+    this.chestLabel?.setStyle({
+      color: '#222222',
+      backgroundColor: '#ffdd88',
+    });
+  }
+
+  private getSkillName(skill: SkillId): string {
+    if (skill === 1) {
+      return '虹色ビーム';
+    }
+    if (skill === 2) {
+      return '回転ナイフ';
+    }
+    return '超速ダッシュ';
   }
 
   private spawnCar(): void {
@@ -566,6 +633,10 @@ export class GameScene extends Phaser.Scene {
 
   private updatePlayer(time: number): void {
     const baseSpeed = time < this.speedBoostUntil ? 330 : 210;
+    if (Phaser.Input.Keyboard.JustDown(this.shiftKey) && time >= this.speedBoostUntil) {
+      this.speedBoostUntil = time + DASH_DURATION_MS;
+      this.createDashMotion();
+    }
     if (this.selectedSkill === 1
       && this.skillConfirmKey.isDown
       && this.beamChargeStartedAt > 0
@@ -959,6 +1030,18 @@ export class GameScene extends Phaser.Scene {
       this.player.setAlpha(1);
       this.player.setScale(1);
     }
+  }
+
+  private createDashMotion(): void {
+    this.dashMotion?.stop();
+    this.dashMotion = this.tweens.add({
+      targets: this.player,
+      alpha: 0.55,
+      duration: 140,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
   }
 
   private fireWeapon(time: number): void {
@@ -1506,6 +1589,9 @@ export class GameScene extends Phaser.Scene {
     this.bullets.clear(true, true);
     this.guidePath?.destroy();
     this.guideHideTimer?.remove();
+    this.chests.clear(true, true);
+    this.chestLabel?.destroy();
+    this.chestLabel = undefined;
     this.knives.forEach((knife) => knife.destroy());
     this.knives = [];
     this.reloadGauge?.destroy();
@@ -1539,6 +1625,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud(time: number): void {
+    const speedBoost = Math.max(0, (this.speedBoostUntil - time) / 1000);
     const knifeCooldown = Math.max(0, (this.knifeReadyAt - time) / 1000);
     const warpCooldown = Math.max(0, (this.warpReadyAt - time) / 1000);
     const guide = Math.max(0, (this.guideReadyAt - time) / 1000);
@@ -1558,15 +1645,17 @@ export class GameScene extends Phaser.Scene {
       `衝突  ${this.hits} / 2`,
       `使用スキル  ${this.selectedSkill}`,
       '',
-      `[1] [Z] 虹色ビーム（5秒長押し）${this.selectedSkill === 1 ? '' : '（使用不可）'}`,
+      '[SHIFT] 高速移動\n（最大10秒）',
+      `  ${speedBoost > 0 ? `残り ${speedBoost.toFixed(1)}秒` : '準備完了'}`,
+      `[1] [Z] 虹色ビーム\n（5秒長押し）${this.selectedSkill === 1 ? '' : '（使用不可）'}`,
       `  ${this.selectedSkill === 1
         ? `チャージ ${Math.round(beamCharge * 100)}%`
         : '使用不可'}`,
-      `[2] [Z] 回転ナイフ（4本）${this.selectedSkill === 2 ? '' : '（使用不可）'}`,
+      `[2] [Z] 回転ナイフ\n（4本）${this.selectedSkill === 2 ? '' : '（使用不可）'}`,
       `  ${this.selectedSkill === 2 ? (knifeCooldown > 0 ? `あと ${knifeCooldown.toFixed(1)}秒` : '準備完了') : '使用不可'}`,
       '[SPACE] ワープ',
       `  ${warpCooldown > 0 ? `あと ${warpCooldown.toFixed(1)}秒` : '準備完了'}`,
-      `[3] [Z] 超速ダッシュ（1秒長押し）${this.selectedSkill === 3 ? '' : '（使用不可）'}`,
+      `[3] [Z] 超速ダッシュ\n（1秒長押し）${this.selectedSkill === 3 ? '' : '（使用不可）'}`,
       `  ${this.selectedSkill === 3
         ? (dashCharge > 0 ? `チャージ ${Math.round(dashCharge * 100)}%` : (dashCooldown > 0 ? `あと ${dashCooldown.toFixed(1)}秒` : '準備完了'))
         : '使用不可'}`,
