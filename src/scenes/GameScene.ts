@@ -19,11 +19,13 @@ const ROUND_TIME_LIMIT_SECONDS = 180;
 const BULLET_FIRE_INTERVAL_MS = 120;
 const MAGAZINE_SIZE = 12;
 const RELOAD_DURATION_MS = 2000;
+const WARP_COOLDOWN_MS = 3000;
+const DASH_DURATION_MS = 10000;
 const GUIDE_DISPLAY_MS = 5000;
 const GUIDE_COOLDOWN_MS = 15000;
 const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
-const MAZE_CELL_SIZE = 40;
+const MAZE_CELL_SIZE = 44;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
 const SIDEBAR_WIDTH = 256;
 const STAGE_VIEWPORT_WIDTH = 1024;
@@ -51,6 +53,7 @@ export class GameScene extends Phaser.Scene {
   private totalSeconds = 0;
   private roundSeconds = 0;
   private speedBoostUntil = 0;
+  private dashReadyAt = 0;
   private warpReadyAt = 0;
   private paused = false;
   private transitioning = false;
@@ -73,6 +76,10 @@ export class GameScene extends Phaser.Scene {
   private guideHideTimer?: Phaser.Time.TimerEvent;
   private guidePathPoints: Array<{ row: number; column: number }> = [];
   private reloadGauge?: Phaser.GameObjects.Graphics;
+  private dashGauge?: Phaser.GameObjects.Graphics;
+  private dashMotion?: Phaser.Tweens.Tween;
+  private startMarker?: Phaser.GameObjects.Arc;
+  private startLabel?: Phaser.GameObjects.Text;
 
   constructor() {
     super('GameScene');
@@ -86,6 +93,7 @@ export class GameScene extends Phaser.Scene {
     this.totalSeconds = 0;
     this.roundSeconds = 0;
     this.speedBoostUntil = 0;
+    this.dashReadyAt = 0;
     this.warpReadyAt = 0;
     this.hitCooldownUntil = 0;
     this.nextShotAt = 0;
@@ -122,6 +130,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.updatePlayer(time);
+    this.updateDashGauge(time);
     this.updateReload(time);
     this.fireWeapon(time);
     this.updateGuideSkill(time);
@@ -137,36 +146,36 @@ export class GameScene extends Phaser.Scene {
 
   private createTextures(): void {
     const playerGraphics = this.add.graphics();
-    playerGraphics.fillStyle(0x63d8a0, 1);
-    playerGraphics.fillRoundedRect(0, 0, 34, 46, 8);
-    playerGraphics.generateTexture('player', 34, 46);
+    playerGraphics.fillStyle(0x777777, 1);
+    playerGraphics.fillRoundedRect(0, 0, 40, 40, 8);
+    playerGraphics.generateTexture('player', 40, 40);
     playerGraphics.destroy();
 
     const carGraphics = this.add.graphics();
-    carGraphics.fillStyle(0xef6b63, 1);
+    carGraphics.fillStyle(0x333333, 1);
     carGraphics.fillRoundedRect(0, 0, 86, 34, 7);
-    carGraphics.fillStyle(0x202c3c, 1);
+    carGraphics.fillStyle(0xdddddd, 1);
     carGraphics.fillRect(15, 5, 20, 11);
     carGraphics.fillRect(51, 5, 20, 11);
     carGraphics.generateTexture('car', 86, 34);
     carGraphics.destroy();
 
     const bombGraphics = this.add.graphics();
-    bombGraphics.fillStyle(0x1b1b24, 1);
+    bombGraphics.fillStyle(0x111111, 1);
     bombGraphics.fillCircle(18, 18, 16);
-    bombGraphics.fillStyle(0xffb347, 1);
+    bombGraphics.fillStyle(0x888888, 1);
     bombGraphics.fillCircle(27, 7, 5);
     bombGraphics.generateTexture('bomb', 36, 36);
     bombGraphics.destroy();
 
     const bulletGraphics = this.add.graphics();
-    bulletGraphics.fillStyle(0xffe277, 1);
+    bulletGraphics.fillStyle(0x111111, 1);
     bulletGraphics.fillRoundedRect(0, 0, 8, 22, 3);
     bulletGraphics.generateTexture('bullet', 8, 22);
     bulletGraphics.destroy();
 
     const wallGraphics = this.add.graphics();
-    wallGraphics.fillStyle(0xbdada1, 1);
+    wallGraphics.fillStyle(0x888888, 1);
     wallGraphics.fillRect(0, 0, 1, 1);
     wallGraphics.generateTexture('wall', 1, 1);
     wallGraphics.destroy();
@@ -174,20 +183,20 @@ export class GameScene extends Phaser.Scene {
 
   private createWorld(): void {
     const { height } = this.scale;
-    this.add.rectangle(SIDEBAR_WIDTH / 2, height / 2, SIDEBAR_WIDTH, height, 0x26405f)
+    this.add.rectangle(SIDEBAR_WIDTH / 2, height / 2, SIDEBAR_WIDTH, height, 0x222222)
       .setScrollFactor(0)
       .setDepth(900);
     this.add.rectangle(SIDEBAR_WIDTH, height / 2, 4, height, 0xffffff)
       .setScrollFactor(0)
       .setDepth(901);
-    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0xf1dfc5);
-    this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xbdada1);
-    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xbdada1);
+    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0xf1f1f1);
+    this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xaaaaaa);
+    this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xaaaaaa);
 
     this.player = this.physics.add.sprite(START_X, START_Y, 'player');
     this.player.setCollideWorldBounds(true);
     if (this.player.body) {
-      this.player.body.setSize(24, 28, true);
+      this.player.body.setSize(28, 28, true);
     }
 
     this.cars = this.physics.add.group({ allowGravity: false, immovable: true });
@@ -202,23 +211,24 @@ export class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
     this.player.setCollideWorldBounds(true);
     this.cameras.main.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
-    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
+    this.cameras.main.centerOn(START_X, START_Y);
+    this.cameras.main.startFollow(this.player, true, 1, 1);
 
     this.hud = this.add.text(20, 28, '', {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '18px',
       color: '#ffffff',
-      backgroundColor: '#26405F',
+      backgroundColor: '#222222',
       padding: { x: 10, y: 12 },
       wordWrap: { width: SIDEBAR_WIDTH - 40 },
     }).setScrollFactor(0).setDepth(1000);
+    this.dashGauge = this.add.graphics().setScrollFactor(0).setDepth(1001);
     this.banner = this.add.text(SIDEBAR_WIDTH + STAGE_VIEWPORT_WIDTH / 2, height / 2, '', {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '54px',
-      color: '#ffffff',
+      color: '#222222',
       fontStyle: 'bold',
-    }).setOrigin(0.5).setAlpha(0);
-    this.banner.setScrollFactor(0);
+    }).setOrigin(0.5).setAlpha(0).setScrollFactor(0).setDepth(1100);
   }
 
   private createInput(): void {
@@ -270,8 +280,23 @@ export class GameScene extends Phaser.Scene {
     this.guidePath = undefined;
     this.guideHideTimer?.remove();
     this.guideHideTimer = undefined;
+    this.dashMotion?.stop();
+    this.player.setAlpha(1);
+    this.player.setScale(1);
+    this.startMarker?.destroy();
+    this.startLabel?.destroy();
     this.walls.clear(true, true);
     this.createMaze(config.mazeWalls);
+    this.startMarker = this.add.circle(START_X, START_Y, 18, 0xf1f1f1, 1)
+      .setStrokeStyle(4, 0x222222, 1)
+      .setDepth(-1);
+    this.startLabel = this.add.text(START_X, START_Y - 64, 'スタート', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '16px',
+      color: '#222222',
+      backgroundColor: '#f1f1f1',
+      padding: { x: 4, y: 2 },
+    }).setOrigin(0.5).setDepth(21);
     this.dangerZone?.destroy();
     this.dangerZone = undefined;
     this.dangerDropTimer?.remove();
@@ -353,21 +378,78 @@ export class GameScene extends Phaser.Scene {
     this.player.x = Phaser.Math.Clamp(this.player.x, 30, WORLD_SIZE - 30);
 
     if (Phaser.Input.Keyboard.JustDown(this.shiftKey) && time >= this.speedBoostUntil) {
-      this.speedBoostUntil = time + 3500;
+      if (time >= this.dashReadyAt) {
+        this.speedBoostUntil = time + DASH_DURATION_MS;
+        this.dashReadyAt = this.speedBoostUntil;
+        this.createDashMotion();
+      }
     }
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && time >= this.warpReadyAt) {
+      const previousX = this.player.x;
+      const previousY = this.player.y;
       this.player.x = Phaser.Math.Clamp(
-        this.player.x - this.shotDirectionX * 125,
+        this.player.x + this.shotDirectionX * 125,
         30,
         WORLD_SIZE - 30,
       );
       this.player.y = Phaser.Math.Clamp(
-        this.player.y - this.shotDirectionY * 125,
+        this.player.y + this.shotDirectionY * 125,
         82,
         WORLD_SIZE - 82,
       );
-      this.warpReadyAt = time + 6000;
+      this.createWarpMotion(previousX, previousY);
+      this.warpReadyAt = time + WARP_COOLDOWN_MS;
     }
+  }
+
+  private createDashMotion(): void {
+    this.dashMotion?.stop();
+    this.dashMotion = this.tweens.add({
+      targets: this.player,
+      alpha: 0.55,
+      duration: 140,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  private updateDashGauge(time: number): void {
+    const remaining = Phaser.Math.Clamp((this.speedBoostUntil - time) / DASH_DURATION_MS, 0, 1);
+    const x = 20;
+    const y = this.scale.height - 38;
+    const width = SIDEBAR_WIDTH - 40;
+    this.dashGauge?.clear();
+    this.dashGauge?.fillStyle(0x666666, 1);
+    this.dashGauge?.fillRect(x, y, width, 10);
+    this.dashGauge?.fillStyle(0xffffff, 1);
+    this.dashGauge?.fillRect(x, y, width * remaining, 10);
+    if (remaining <= 0) {
+      this.dashMotion?.stop();
+      this.player.setAlpha(1);
+      this.player.setScale(1);
+    }
+  }
+
+  private createWarpMotion(previousX: number, previousY: number): void {
+    const trail = this.add.circle(previousX, previousY, 18, 0xaaaaaa, 0.7)
+      .setStrokeStyle(4, 0x222222, 1)
+      .setDepth(15);
+    this.tweens.add({
+      targets: trail,
+      radius: 70,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => trail.destroy(),
+    });
+    this.tweens.add({
+      targets: this.player,
+      scaleX: 1.35,
+      scaleY: 0.7,
+      duration: 90,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+    });
   }
 
   private fireWeapon(time: number): void {
@@ -399,7 +481,7 @@ export class GameScene extends Phaser.Scene {
     this.reloading = true;
     this.reloadStartedAt = time;
     this.reloadEndsAt = time + RELOAD_DURATION_MS;
-    this.reloadGauge = this.add.graphics().setScrollFactor(0).setDepth(20);
+    this.reloadGauge = this.add.graphics().setScrollFactor(0).setDepth(1002);
   }
 
   private updateReload(time: number): void {
@@ -411,8 +493,8 @@ export class GameScene extends Phaser.Scene {
       0,
       1,
     );
-    const centerX = SIDEBAR_WIDTH + STAGE_VIEWPORT_WIDTH / 2;
-    const centerY = this.scale.height / 2;
+    const centerX = SIDEBAR_WIDTH / 2;
+    const centerY = this.scale.height - 100;
     const radius = 58;
     const startAngle = -Math.PI / 2;
     const endAngle = startAngle + Math.PI * 2 * progress;
@@ -420,7 +502,7 @@ export class GameScene extends Phaser.Scene {
     this.reloadGauge?.lineStyle(8, 0x333333, 0.95);
     this.reloadGauge?.strokeCircle(centerX, centerY, radius);
     if (progress > 0) {
-      this.reloadGauge?.lineStyle(10, 0xbdada1, 1);
+      this.reloadGauge?.lineStyle(10, 0xdddddd, 1);
       this.reloadGauge?.beginPath();
       for (let segment = 0; segment <= 32 * progress; segment += 1) {
         const angle = startAngle + (endAngle - startAngle) * (segment / (32 * progress));
@@ -453,7 +535,7 @@ export class GameScene extends Phaser.Scene {
     this.guidePath?.destroy();
     this.guideHideTimer?.remove();
     this.guidePath = this.add.graphics().setDepth(10);
-    this.guidePath.lineStyle(8, 0x00e5ff, 0.9);
+    this.guidePath.lineStyle(8, 0x333333, 0.9);
     this.guidePath.beginPath();
     this.guidePathPoints.forEach((point, index) => {
       const x = point.column * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
@@ -676,8 +758,8 @@ export class GameScene extends Phaser.Scene {
 
     const x = Phaser.Math.Between(150, WORLD_SIZE - 150);
     const y = Phaser.Math.Between(200, WORLD_SIZE - 200);
-    const zone = this.add.rectangle(x, y, 120, 76, 0xe33e4f, 0.45)
-      .setStrokeStyle(4, 0xff6675, 1);
+    const zone = this.add.rectangle(x, y, 120, 76, 0x888888, 0.45)
+      .setStrokeStyle(4, 0x222222, 1);
     this.dangerZone = zone;
     this.tweens.add({
       targets: zone,
@@ -729,8 +811,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createExplosion(x: number, y: number): void {
-    const explosion = this.add.circle(x, y, 24, 0xffa33d, 0.9)
-      .setStrokeStyle(5, 0xffe277, 1);
+    const explosion = this.add.circle(x, y, 24, 0xaaaaaa, 0.9)
+      .setStrokeStyle(5, 0xffffff, 1);
     this.tweens.add({
       targets: explosion,
       radius: 105,
@@ -790,6 +872,10 @@ export class GameScene extends Phaser.Scene {
     this.guidePath?.destroy();
     this.guideHideTimer?.remove();
     this.reloadGauge?.destroy();
+    this.dashGauge?.destroy();
+    this.dashMotion?.stop();
+    this.player.setAlpha(1);
+    this.player.setScale(1);
     this.player.setVelocity(0, 0);
     this.scene.start('ResultScene', {
       totalSeconds: this.totalSeconds,
@@ -824,8 +910,8 @@ export class GameScene extends Phaser.Scene {
       `弾薬  ${this.reloading ? 'リロード中' : `${this.ammo} / ${MAGAZINE_SIZE}`}`,
       `衝突  ${this.hits} / 2`,
       '',
-      '[SHIFT] 加速',
-      `  ${boost > 0 ? `あと ${boost.toFixed(1)}秒` : '準備完了'}`,
+      '[SHIFT] ダッシュ（最大10秒）',
+      `  ${boost > 0 ? `残り ${boost.toFixed(1)}秒` : '準備完了'}`,
       '[SPACE] ワープ',
       `  ${warp > 0 ? `あと ${warp.toFixed(1)}秒` : '準備完了'}`,
       '[G] 道案内（5秒）',

@@ -17,27 +17,27 @@ export class ResultScene extends Phaser.Scene {
     const { width, height } = this.scale;
     const won = data.won;
       const title = won ? 'クリア！' : 'ゲームオーバー';
-      const color = '#BDADA1';
+      const color = '#f1f1f1';
 
-      this.add.rectangle(width / 2, height / 2, width, height, 0x26405f);
+      this.add.rectangle(width / 2, height / 2, width, height, 0x222222);
     this.add.text(width / 2, 190, title, {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '64px',
       color,
       fontStyle: 'bold',
     }).setOrigin(0.5);
     this.add.text(width / 2, 330, `生存時間  ${data.totalSeconds.toFixed(1)} 秒`, {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '30px',
       color: '#ffffff',
     }).setOrigin(0.5);
     this.add.text(width / 2, 385, `スコア  ${data.score}`, {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '26px',
       color: '#ffffff',
     }).setOrigin(0.5);
     const prompt = this.add.text(width / 2, 550, 'Enterキーでタイトルへ', {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '26px',
       color,
     }).setOrigin(0.5);

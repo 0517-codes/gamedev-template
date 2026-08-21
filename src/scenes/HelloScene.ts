@@ -7,7 +7,7 @@ export class HelloScene extends Phaser.Scene {
 
   create(): void {
     this.add.text(16, 16, 'Hello, world!', {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '32px',
       color: '#000000',
     });

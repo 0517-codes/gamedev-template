@@ -10,33 +10,33 @@ export class TitleScene extends Phaser.Scene {
   create(): void {
     const { width, height } = this.scale;
 
-      this.add.rectangle(width / 2, height / 2, width, height, 0xf1dfc5);
-      this.add.rectangle(width / 2, height * 0.72, width, 120, 0x26405f);
-    this.add.text(width / 2, 170, '全部危険地帯＼(＾o＾)／', {
-      fontFamily: 'sans-serif',
+      this.add.rectangle(width / 2, height / 2, width, height, 0xf1f1f1);
+      this.add.rectangle(width / 2, height * 0.72, width, 120, 0x222222);
+    this.add.text(width / 2, 170, 'ご注文は鬼畜迷路ですか?', {
+      fontFamily: 'Georgia, serif',
       fontSize: '72px',
-      color: '#26405F',
+      color: '#222222',
       fontStyle: 'bold',
     }).setOrigin(0.5);
     this.add.text(width / 2, 250, '3ラウンド  |  各ラウンド180秒', {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '22px',
-      color: '#BDADA1',
+      color: '#666666',
     }).setOrigin(0.5);
-    this.add.text(width / 2, 390, '矢印キー: 移動　 SHIFT: 加速　 SPACE: ワープ', {
-      fontFamily: 'sans-serif',
+    this.add.text(width / 2, 390, '矢印キー: 移動　 SHIFT: ダッシュ　 SPACE: ワープ', {
+      fontFamily: 'Georgia, serif',
       fontSize: '22px',
-      color: '#26405F',
+      color: '#222222',
     }).setOrigin(0.5);
     this.add.text(width / 2, 435, 'F: 連射　 R: リロード　 G: 道案内', {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '22px',
-      color: '#26405F',
+      color: '#222222',
     }).setOrigin(0.5);
     const prompt = this.add.text(width / 2, 560, 'Enterキーで開始', {
-      fontFamily: 'sans-serif',
+      fontFamily: 'Georgia, serif',
       fontSize: '30px',
-      color: '#F1DFC5',
+      color: '#f1f1f1',
     }).setOrigin(0.5);
 
     this.tweens.add({
