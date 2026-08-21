@@ -35,7 +35,7 @@ const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
 const SUPER_DASH_LENGTH = MAZE_CELL_SIZE * 6;
 const SUPER_DASH_WIDTH = MAZE_CELL_SIZE * 2;
 const BEAM_LENGTH = MAZE_CELL_SIZE * 15;
-const BEAM_CHARGE_LENGTH = MAZE_CELL_SIZE;
+const BEAM_CHARGE_LENGTH = MAZE_CELL_SIZE / 2;
 const BEAM_WIDTH = MAZE_CELL_SIZE * 3;
 const BEAM_DISPLAY_MS = 3000;
 const KNIFE_DURATION_MS = 5000;
@@ -44,6 +44,7 @@ const WARP_COOLDOWN_MS = 3000;
 const KNIFE_COUNT = 4;
 const KNIFE_RADIUS = 96;
 const KNIFE_SIZE = 72;
+const KNIFE_EFFECT_COLORS = [0x66ccff, 0xffffff, 0xff66cc];
 const RAINBOW_COLORS = [0xff3333, 0xffaa33, 0xffff33, 0x33dd66, 0x33aaff, 0x7755ff, 0xdd55dd];
 const SIDEBAR_WIDTH = 256;
 const STAGE_VIEWPORT_WIDTH = 1024;
@@ -57,7 +58,9 @@ export class GameScene extends Phaser.Scene {
   private bombs!: Phaser.Physics.Arcade.Group;
   private bullets!: Phaser.Physics.Arcade.Group;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
+  private chests!: Phaser.Physics.Arcade.StaticGroup;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private shiftKey!: Phaser.Input.Keyboard.Key;
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private fireKey!: Phaser.Input.Keyboard.Key;
   private reloadKey!: Phaser.Input.Keyboard.Key;
@@ -115,8 +118,15 @@ export class GameScene extends Phaser.Scene {
   private beamDirectionY = -1;
   private beamGraphics?: Phaser.GameObjects.Graphics;
   private knives: Phaser.GameObjects.Rectangle[] = [];
+  private knifeEffect?: Phaser.GameObjects.Graphics;
   private knivesActiveUntil = 0;
   private knifeAngle = 0;
+  private dashEffect?: Phaser.GameObjects.Graphics;
+  private dashEffectOriginX = 0;
+  private dashEffectOriginY = 0;
+  private dashEffectEndX = 0;
+  private dashEffectEndY = 0;
+  private dashEffectUntil = 0;
   private dangerZone?: Phaser.GameObjects.Rectangle;
   private guidePath?: Phaser.GameObjects.Graphics;
   private guideHideTimer?: Phaser.Time.TimerEvent;
@@ -125,6 +135,9 @@ export class GameScene extends Phaser.Scene {
   private dashMotion?: Phaser.Tweens.Tween;
   private startMarker?: Phaser.GameObjects.Arc;
   private startLabel?: Phaser.GameObjects.Text;
+  private chestLabel?: Phaser.GameObjects.Text;
+  private chestContents: SkillId[] = [];
+  private chestOpened = false;
 
   constructor() {
     super('GameScene');
@@ -194,6 +207,8 @@ export class GameScene extends Phaser.Scene {
     this.updateSuperDash(time);
     this.updatePlayer(time);
     this.updateKnives(time);
+    this.updateKnifeEffect(time);
+    this.updateDashEffect(time);
     this.updateGuideSkill(time);
     this.updateDashGauge(time);
     this.updateReload(time);
@@ -243,6 +258,15 @@ export class GameScene extends Phaser.Scene {
     wallGraphics.fillRect(0, 0, 1, 1);
     wallGraphics.generateTexture('wall', 1, 1);
     wallGraphics.destroy();
+
+    const chestGraphics = this.add.graphics();
+    chestGraphics.fillStyle(0x8b4513, 1);
+    chestGraphics.fillRoundedRect(0, 10, 64, 36, 6);
+    chestGraphics.fillStyle(0xd4a017, 1);
+    chestGraphics.fillRect(0, 8, 64, 10);
+    chestGraphics.fillRect(28, 16, 8, 20);
+    chestGraphics.generateTexture('chest', 64, 46);
+    chestGraphics.destroy();
   }
 
   private createWorld(): void {
@@ -267,9 +291,11 @@ export class GameScene extends Phaser.Scene {
     this.bombs = this.physics.add.group({ allowGravity: false, immovable: true });
     this.bullets = this.physics.add.group({ allowGravity: false });
     this.walls = this.physics.add.staticGroup();
+    this.chests = this.physics.add.staticGroup();
     this.physics.add.overlap(this.player, this.cars, this.handleHit, undefined, this);
     this.physics.add.overlap(this.player, this.bombs, this.handleBombHit, undefined, this);
     this.physics.add.overlap(this.bullets, this.cars, this.handleBulletHit, undefined, this);
+    this.physics.add.overlap(this.player, this.chests, this.openChest, undefined, this);
     this.physics.add.collider(this.player, this.walls);
     this.physics.add.collider(this.cars, this.walls);
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
@@ -306,6 +332,7 @@ export class GameScene extends Phaser.Scene {
       throw new Error('Keyboard input is required.');
     }
     this.cursors = keyboard.createCursorKeys();
+    this.shiftKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.fireKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
     this.reloadKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
@@ -319,6 +346,7 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.DOWN,
       Phaser.Input.Keyboard.KeyCodes.LEFT,
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      Phaser.Input.Keyboard.KeyCodes.SHIFT,
       Phaser.Input.Keyboard.KeyCodes.ESC,
       Phaser.Input.Keyboard.KeyCodes.SPACE,
       Phaser.Input.Keyboard.KeyCodes.F,
@@ -368,6 +396,8 @@ export class GameScene extends Phaser.Scene {
     this.dashChargeStartedAt = 0;
     this.dashRequiresRelease = false;
     this.dashInvulnerableUntil = 0;
+    this.dashEffect?.clear();
+    this.dashEffectUntil = 0;
     this.knives.forEach((knife) => knife.destroy());
     this.knives = [];
     this.knivesActiveUntil = 0;
@@ -380,6 +410,11 @@ export class GameScene extends Phaser.Scene {
     this.player.setScale(1);
     this.startMarker?.destroy();
     this.startLabel?.destroy();
+    this.chests.clear(true, true);
+    this.chestLabel?.destroy();
+    this.chestLabel = undefined;
+    this.chestContents = [];
+    this.chestOpened = false;
     this.walls.clear(true, true);
     this.createMaze(config.mazeWalls);
     this.startMarker = this.add.circle(START_X, START_Y, 18, 0xf1f1f1, 1)
@@ -512,6 +547,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.transitioning) {
       return;
     }
+    this.createChest();
     this.transitioning = false;
     this.spawnTimer = this.time.addEvent({
       delay: (ROUND_TIME_LIMIT_SECONDS * 1000) / config.carsPerRound,
@@ -525,6 +561,49 @@ export class GameScene extends Phaser.Scene {
       callback: this.showDangerZone,
       callbackScope: this,
     });
+  }
+
+  private createChest(): void {
+    this.chestContents = ([1, 2, 3] as SkillId[]).filter(
+      (skill) => skill !== this.selectedSkill,
+    );
+    this.chestOpened = false;
+    const chestX = START_X;
+    const chestY = START_Y - MAZE_CELL_SIZE - 12;
+    const chest = this.chests.create(chestX, chestY, 'chest') as Phaser.Physics.Arcade.Sprite;
+    chest.setDepth(8);
+    chest.refreshBody();
+    this.chestLabel = this.add.text(chestX, chestY - 50, '宝箱', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '18px',
+      color: '#222222',
+      backgroundColor: '#f1f1f1',
+      padding: { x: 5, y: 3 },
+    }).setOrigin(0.5).setDepth(9);
+  }
+
+  private openChest(): void {
+    if (this.chestOpened) {
+      return;
+    }
+    this.chestOpened = true;
+    this.chests.clear(true, true);
+    const contents = this.chestContents.map((skill) => this.getSkillName(skill)).join(' / ');
+    this.chestLabel?.setText(`宝箱の中身\n${contents}`);
+    this.chestLabel?.setStyle({
+      color: '#222222',
+      backgroundColor: '#ffdd88',
+    });
+  }
+
+  private getSkillName(skill: SkillId): string {
+    if (skill === 1) {
+      return '虹色ビーム';
+    }
+    if (skill === 2) {
+      return '回転ナイフ';
+    }
+    return '超速ダッシュ';
   }
 
   private spawnCar(): void {
@@ -554,6 +633,10 @@ export class GameScene extends Phaser.Scene {
 
   private updatePlayer(time: number): void {
     const baseSpeed = time < this.speedBoostUntil ? 330 : 210;
+    if (Phaser.Input.Keyboard.JustDown(this.shiftKey) && time >= this.speedBoostUntil) {
+      this.speedBoostUntil = time + DASH_DURATION_MS;
+      this.createDashMotion();
+    }
     if (this.selectedSkill === 1
       && this.skillConfirmKey.isDown
       && this.beamChargeStartedAt > 0
@@ -657,11 +740,13 @@ export class GameScene extends Phaser.Scene {
 
   private updateKnives(time: number): void {
     if (this.knives.length === 0) {
+      this.knifeEffect?.clear();
       return;
     }
     if (time >= this.knivesActiveUntil) {
       this.knives.forEach((knife) => knife.destroy());
       this.knives = [];
+      this.knifeEffect?.clear();
       return;
     }
     this.knifeAngle += 0.18;
@@ -673,6 +758,33 @@ export class GameScene extends Phaser.Scene {
       );
       knife.setRotation(angle);
       this.destroyObjectsAtKnife(knife.x, knife.y);
+    });
+  }
+
+  private updateKnifeEffect(time: number): void {
+    if (this.knives.length === 0) {
+      return;
+    }
+    if (!this.knifeEffect) {
+      this.knifeEffect = this.add.graphics().setDepth(13);
+    }
+    const effect = this.knifeEffect;
+    const pulse = Math.sin(time / 90) * 4;
+    effect.clear();
+    effect.lineStyle(4, 0xffffff, 0.35);
+    effect.strokeCircle(this.player.x, this.player.y, KNIFE_RADIUS + pulse);
+    effect.lineStyle(2, 0x66ccff, 0.45);
+    effect.strokeCircle(this.player.x, this.player.y, KNIFE_RADIUS - 12 - pulse);
+    this.knives.forEach((knife, index) => {
+      const angle = this.knifeAngle + (Math.PI * 2 * index) / KNIFE_COUNT;
+      const trailLength = 24 + Math.abs(pulse) * 2;
+      const trailX = knife.x - Math.cos(angle) * trailLength;
+      const trailY = knife.y - Math.sin(angle) * trailLength;
+      effect.lineStyle(7, KNIFE_EFFECT_COLORS[index % KNIFE_EFFECT_COLORS.length], 0.55);
+      effect.beginPath();
+      effect.moveTo(trailX, trailY);
+      effect.lineTo(knife.x, knife.y);
+      effect.strokePath();
     });
   }
 
@@ -699,6 +811,14 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.beamActiveUntil > time) {
       this.destroyObjectsInBeam();
+      this.drawRainbowBeam(
+        BEAM_LENGTH,
+        this.beamOriginX,
+        this.beamOriginY,
+        this.beamDirectionX,
+        this.beamDirectionY,
+      );
+      this.drawBeamLaunchEffect(time);
     }
     if (this.beamRequiresRelease) {
       if (this.beamRequiresRelease && !this.skillConfirmKey.isDown) {
@@ -722,6 +842,7 @@ export class GameScene extends Phaser.Scene {
       1,
     );
     this.drawRainbowBeam(BEAM_CHARGE_LENGTH);
+    this.drawRainbowChargeEffect(progress, time);
     if (progress >= 1) {
       this.beamOriginX = this.player.x;
       this.beamOriginY = this.player.y;
@@ -775,6 +896,70 @@ export class GameScene extends Phaser.Scene {
       );
       this.beamGraphics.strokePath();
     }
+  }
+
+  private drawRainbowChargeEffect(progress: number, time: number): void {
+    if (!this.beamGraphics) {
+      return;
+    }
+    const pulse = Math.sin(time / 90) * 4;
+    const radius = 28 + progress * 18 + pulse;
+    const rotation = time / 260;
+    for (let index = 0; index < RAINBOW_COLORS.length; index += 1) {
+      const angle = rotation + (Math.PI * 2 * index) / RAINBOW_COLORS.length;
+      const startRadius = radius - 8;
+      const endRadius = radius + 8;
+      this.beamGraphics.lineStyle(5, RAINBOW_COLORS[index], 0.85);
+      this.beamGraphics.beginPath();
+      this.beamGraphics.moveTo(
+        this.player.x + Math.cos(angle) * startRadius,
+        this.player.y + Math.sin(angle) * startRadius,
+      );
+      this.beamGraphics.lineTo(
+        this.player.x + Math.cos(angle) * endRadius,
+        this.player.y + Math.sin(angle) * endRadius,
+      );
+      this.beamGraphics.strokePath();
+    }
+    this.beamGraphics.lineStyle(3, 0xffffff, 0.8);
+    this.beamGraphics.strokeCircle(this.player.x, this.player.y, radius);
+  }
+
+  private drawBeamLaunchEffect(time: number): void {
+    if (!this.beamGraphics) {
+      return;
+    }
+    const pulse = Math.sin(time / 70) * 6;
+    const perpendicularX = -this.beamDirectionY;
+    const perpendicularY = this.beamDirectionX;
+    const endX = this.beamOriginX + this.beamDirectionX * BEAM_LENGTH;
+    const endY = this.beamOriginY + this.beamDirectionY * BEAM_LENGTH;
+
+    this.beamGraphics.lineStyle(5, 0xffffff, 0.9);
+    this.beamGraphics.beginPath();
+    this.beamGraphics.moveTo(this.beamOriginX, this.beamOriginY);
+    this.beamGraphics.lineTo(endX, endY);
+    this.beamGraphics.strokePath();
+
+    for (let index = -1; index <= 1; index += 1) {
+      const offset = (index * 10) + pulse;
+      this.beamGraphics.lineStyle(3, 0xffffff, 0.45);
+      this.beamGraphics.beginPath();
+      this.beamGraphics.moveTo(
+        this.beamOriginX + perpendicularX * offset,
+        this.beamOriginY + perpendicularY * offset,
+      );
+      this.beamGraphics.lineTo(
+        endX + perpendicularX * offset * 0.5,
+        endY + perpendicularY * offset * 0.5,
+      );
+      this.beamGraphics.strokePath();
+    }
+
+    this.beamGraphics.fillStyle(0xffffff, 0.75);
+    this.beamGraphics.fillCircle(this.beamOriginX, this.beamOriginY, 18 + pulse);
+    this.beamGraphics.lineStyle(5, 0xffffff, 0.9);
+    this.beamGraphics.strokeCircle(endX, endY, 16 + Math.abs(pulse));
   }
 
   private destroyObjectsInBeam(): void {
@@ -845,6 +1030,18 @@ export class GameScene extends Phaser.Scene {
       this.player.setAlpha(1);
       this.player.setScale(1);
     }
+  }
+
+  private createDashMotion(): void {
+    this.dashMotion?.stop();
+    this.dashMotion = this.tweens.add({
+      targets: this.player,
+      alpha: 0.55,
+      duration: 140,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
   }
 
   private fireWeapon(time: number): void {
@@ -929,6 +1126,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateSuperDash(time: number): void {
     if (this.selectedSkill !== 3) {
+      this.dashEffect?.clear();
       return;
     }
     if (this.dashRequiresRelease) {
@@ -969,6 +1167,11 @@ export class GameScene extends Phaser.Scene {
     const top = Math.min(originY, endY) - SUPER_DASH_WIDTH / 2;
     const bottom = Math.max(originY, endY) + SUPER_DASH_WIDTH / 2;
     this.destroyObjectsInBounds(left, right, top, bottom);
+    this.dashEffectOriginX = originX;
+    this.dashEffectOriginY = originY;
+    this.dashEffectEndX = endX;
+    this.dashEffectEndY = endY;
+    this.dashEffectUntil = time + 450;
     this.dashChargeStartedAt = 0;
     this.dashRequiresRelease = true;
     if (!this.debugMode) {
@@ -984,6 +1187,62 @@ export class GameScene extends Phaser.Scene {
         this.dashInvulnerableUntil = this.time.now + SUPER_DASH_INVULNERABLE_MS;
       },
     });
+  }
+
+  private updateDashEffect(time: number): void {
+    if (!this.dashEffect) {
+      this.dashEffect = this.add.graphics().setDepth(13);
+    }
+    this.dashEffect.clear();
+    if (this.selectedSkill !== 3) {
+      return;
+    }
+    if (this.dashChargeStartedAt > 0) {
+      const progress = Phaser.Math.Clamp(
+        (time - this.dashChargeStartedAt) / DASH_CHARGE_MS,
+        0,
+        1,
+      );
+      const pulse = Math.sin(time / 60) * 5;
+      this.dashEffect.lineStyle(4, 0xffdd66, 0.8);
+      this.dashEffect.strokeCircle(this.player.x, this.player.y, 30 + progress * 18 + pulse);
+      this.dashEffect.lineStyle(3, 0xffffff, 0.55);
+      this.dashEffect.strokeCircle(this.player.x, this.player.y, 20 + progress * 12);
+      return;
+    }
+    if (this.dashEffectUntil <= time) {
+      return;
+    }
+    const progress = Phaser.Math.Clamp(
+      1 - (this.dashEffectUntil - time) / 450,
+      0,
+      1,
+    );
+    const directionX = this.dashEffectEndX - this.dashEffectOriginX;
+    const directionY = this.dashEffectEndY - this.dashEffectOriginY;
+    const length = Math.hypot(directionX, directionY) || 1;
+    const perpendicularX = -directionY / length;
+    const perpendicularY = directionX / length;
+    for (let index = -2; index <= 2; index += 1) {
+      const offset = index * 12;
+      this.dashEffect.lineStyle(5, index % 2 === 0 ? 0xffffff : 0xffdd66, 0.65);
+      this.dashEffect.beginPath();
+      this.dashEffect.moveTo(
+        this.dashEffectOriginX + perpendicularX * offset,
+        this.dashEffectOriginY + perpendicularY * offset,
+      );
+      this.dashEffect.lineTo(
+        this.dashEffectEndX + perpendicularX * offset * (1 - progress),
+        this.dashEffectEndY + perpendicularY * offset * (1 - progress),
+      );
+      this.dashEffect.strokePath();
+    }
+    this.dashEffect.lineStyle(6, 0xffffff, 0.9);
+    this.dashEffect.strokeCircle(
+      this.dashEffectEndX,
+      this.dashEffectEndY,
+      24 + progress * 18,
+    );
   }
 
   private showGuidePath(): void {
@@ -1330,11 +1589,16 @@ export class GameScene extends Phaser.Scene {
     this.bullets.clear(true, true);
     this.guidePath?.destroy();
     this.guideHideTimer?.remove();
+    this.chests.clear(true, true);
+    this.chestLabel?.destroy();
+    this.chestLabel = undefined;
     this.knives.forEach((knife) => knife.destroy());
     this.knives = [];
     this.reloadGauge?.destroy();
     this.dashGauge?.destroy();
     this.dashMotion?.stop();
+    this.dashEffect?.destroy();
+    this.dashEffect = undefined;
     this.player.setAlpha(1);
     this.player.setScale(1);
     this.player.setVelocity(0, 0);
@@ -1361,6 +1625,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud(time: number): void {
+    const speedBoost = Math.max(0, (this.speedBoostUntil - time) / 1000);
     const knifeCooldown = Math.max(0, (this.knifeReadyAt - time) / 1000);
     const warpCooldown = Math.max(0, (this.warpReadyAt - time) / 1000);
     const guide = Math.max(0, (this.guideReadyAt - time) / 1000);
@@ -1380,15 +1645,17 @@ export class GameScene extends Phaser.Scene {
       `衝突  ${this.hits} / 2`,
       `使用スキル  ${this.selectedSkill}`,
       '',
-      `[1] [Z] 虹色ビーム（5秒長押し）${this.selectedSkill === 1 ? '' : '（使用不可）'}`,
+      '[SHIFT] 高速移動\n（最大10秒）',
+      `  ${speedBoost > 0 ? `残り ${speedBoost.toFixed(1)}秒` : '準備完了'}`,
+      `[1] [Z] 虹色ビーム\n（5秒長押し）${this.selectedSkill === 1 ? '' : '（使用不可）'}`,
       `  ${this.selectedSkill === 1
         ? `チャージ ${Math.round(beamCharge * 100)}%`
         : '使用不可'}`,
-      `[2] [Z] 回転ナイフ（4本）${this.selectedSkill === 2 ? '' : '（使用不可）'}`,
+      `[2] [Z] 回転ナイフ\n（4本）${this.selectedSkill === 2 ? '' : '（使用不可）'}`,
       `  ${this.selectedSkill === 2 ? (knifeCooldown > 0 ? `あと ${knifeCooldown.toFixed(1)}秒` : '準備完了') : '使用不可'}`,
       '[SPACE] ワープ',
       `  ${warpCooldown > 0 ? `あと ${warpCooldown.toFixed(1)}秒` : '準備完了'}`,
-      `[3] [Z] 超速ダッシュ（1秒長押し）${this.selectedSkill === 3 ? '' : '（使用不可）'}`,
+      `[3] [Z] 超速ダッシュ\n（1秒長押し）${this.selectedSkill === 3 ? '' : '（使用不可）'}`,
       `  ${this.selectedSkill === 3
         ? (dashCharge > 0 ? `チャージ ${Math.round(dashCharge * 100)}%` : (dashCooldown > 0 ? `あと ${dashCooldown.toFixed(1)}秒` : '準備完了'))
         : '使用不可'}`,
