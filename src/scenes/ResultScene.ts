@@ -13,6 +13,10 @@ export class ResultScene extends Phaser.Scene {
     super('ResultScene');
   }
 
+  preload(): void {
+    this.load.image('simapanbisyojo', 'simapanbisyojo.webp');
+  }
+
   create(data: ResultData): void {
     const { width, height } = this.scale;
     const won = data.won;
@@ -20,6 +24,11 @@ export class ResultScene extends Phaser.Scene {
       const color = '#f1f1f1';
 
       this.add.rectangle(width / 2, height / 2, width, height, 0x222222);
+    if (won) {
+      const image = this.add.image(width / 2, 105, 'simapanbisyojo');
+      const scale = Math.min(240 / image.width, 130 / image.height, 1);
+      image.setScale(scale);
+    }
     this.add.text(width / 2, 190, title, {
       fontFamily: 'Georgia, serif',
       fontSize: '64px',
