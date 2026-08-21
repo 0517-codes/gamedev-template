@@ -215,7 +215,12 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.cars, this.walls);
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
     this.player.setCollideWorldBounds(true);
-    this.cameras.main.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
+    this.cameras.main.setBounds(
+      -SIDEBAR_WIDTH,
+      0,
+      WORLD_SIZE + SIDEBAR_WIDTH * 2,
+      WORLD_SIZE,
+    );
     this.cameras.main.centerOn(START_X, START_Y);
     this.cameras.main.startFollow(this.player, true, 1, 1);
 
@@ -357,7 +362,8 @@ export class GameScene extends Phaser.Scene {
       Math.floor(120 + (lane + 1) * laneHeight - 20),
     );
     const fromLeft = Phaser.Math.Between(0, 1) === 0;
-    const x = Phaser.Math.Between(40, WORLD_SIZE - 40);
+    const carSpawnOffset = 100;
+    const x = fromLeft ? -carSpawnOffset : WORLD_SIZE + carSpawnOffset;
     const car = this.cars.create(x, y, 'car') as Phaser.Physics.Arcade.Sprite;
     const speed = Phaser.Math.Between(
       Math.floor(config.carSpeed * 0.7),
