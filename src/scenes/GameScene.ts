@@ -46,6 +46,8 @@ export class GameScene extends Phaser.Scene {
   private reloadKey!: Phaser.Input.Keyboard.Key;
   private guideKey!: Phaser.Input.Keyboard.Key;
   private escKey!: Phaser.Input.Keyboard.Key;
+  private debugModeKeyW!: Phaser.Input.Keyboard.Key;
+  private debugModeKeyQ!: Phaser.Input.Keyboard.Key;
   private round = 1;
   private hits = 0;
   private score = 0;
@@ -70,6 +72,7 @@ export class GameScene extends Phaser.Scene {
   private reloadEndsAt = 0;
   private shotDirectionX = 0;
   private shotDirectionY = -1;
+  private debugMode = false;
   private guideReadyAt = 0;
   private dangerZone?: Phaser.GameObjects.Rectangle;
   private guidePath?: Phaser.GameObjects.Graphics;
@@ -103,6 +106,7 @@ export class GameScene extends Phaser.Scene {
     this.reloadEndsAt = 0;
     this.shotDirectionX = 0;
     this.shotDirectionY = -1;
+    this.debugMode = false;
     this.guideReadyAt = 0;
     this.paused = false;
     this.transitioning = false;
@@ -113,6 +117,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number): void {
+    this.updateDebugMode();
     if (Phaser.Input.Keyboard.JustDown(this.escKey) && !this.transitioning) {
       this.togglePause();
     }
@@ -243,6 +248,8 @@ export class GameScene extends Phaser.Scene {
     this.reloadKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.guideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G);
     this.escKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    this.debugModeKeyW = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+    this.debugModeKeyQ = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
     keyboard.addCapture([
       Phaser.Input.Keyboard.KeyCodes.UP,
       Phaser.Input.Keyboard.KeyCodes.DOWN,
@@ -253,7 +260,19 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.F,
       Phaser.Input.Keyboard.KeyCodes.G,
       Phaser.Input.Keyboard.KeyCodes.R,
+      Phaser.Input.Keyboard.KeyCodes.W,
+      Phaser.Input.Keyboard.KeyCodes.Q,
     ]);
+  }
+
+  private updateDebugMode(): void {
+    const wPressedWithQ = Phaser.Input.Keyboard.JustDown(this.debugModeKeyW)
+      && this.debugModeKeyQ.isDown;
+    const qPressedWithW = Phaser.Input.Keyboard.JustDown(this.debugModeKeyQ)
+      && this.debugModeKeyW.isDown;
+    if (wPressedWithQ || qPressedWithW) {
+      this.debugMode = !this.debugMode;
+    }
   }
 
   private startRound(): void {
@@ -384,7 +403,7 @@ export class GameScene extends Phaser.Scene {
         this.createDashMotion();
       }
     }
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && time >= this.warpReadyAt) {
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && (this.debugMode || time >= this.warpReadyAt)) {
       const previousX = this.player.x;
       const previousY = this.player.y;
       this.player.x = Phaser.Math.Clamp(
@@ -398,7 +417,9 @@ export class GameScene extends Phaser.Scene {
         WORLD_SIZE - 82,
       );
       this.createWarpMotion(previousX, previousY);
-      this.warpReadyAt = time + WARP_COOLDOWN_MS;
+      if (!this.debugMode) {
+        this.warpReadyAt = time + WARP_COOLDOWN_MS;
+      }
     }
   }
 
@@ -731,7 +752,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleHit(): void {
-    if (this.transitioning || this.paused || this.time.now < this.hitCooldownUntil) {
+    if (this.debugMode || this.transitioning || this.paused || this.time.now < this.hitCooldownUntil) {
       return;
     }
     this.hitCooldownUntil = this.time.now + 1200;
@@ -904,6 +925,7 @@ export class GameScene extends Phaser.Scene {
     const warp = Math.max(0, (this.warpReadyAt - time) / 1000);
     const guide = Math.max(0, (this.guideReadyAt - time) / 1000);
     this.hud.setText([
+      ...(this.debugMode ? ['DEBUGMODE'] : []),
       `ラウンド ${this.round} / 3`,
       `残り時間  ${Math.max(0, ROUND_TIME_LIMIT_SECONDS - this.roundSeconds).toFixed(1)} 秒`,
       `スコア ${this.score}`,
