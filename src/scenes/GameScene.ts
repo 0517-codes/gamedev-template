@@ -35,7 +35,7 @@ const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
 const SUPER_DASH_LENGTH = MAZE_CELL_SIZE * 6;
 const SUPER_DASH_WIDTH = MAZE_CELL_SIZE * 2;
 const BEAM_LENGTH = MAZE_CELL_SIZE * 15;
-const BEAM_CHARGE_LENGTH = MAZE_CELL_SIZE;
+const BEAM_CHARGE_LENGTH = MAZE_CELL_SIZE / 2;
 const BEAM_WIDTH = MAZE_CELL_SIZE * 3;
 const BEAM_DISPLAY_MS = 3000;
 const KNIFE_DURATION_MS = 5000;
@@ -44,6 +44,7 @@ const WARP_COOLDOWN_MS = 3000;
 const KNIFE_COUNT = 4;
 const KNIFE_RADIUS = 96;
 const KNIFE_SIZE = 72;
+const KNIFE_EFFECT_COLORS = [0x66ccff, 0xffffff, 0xff66cc];
 const RAINBOW_COLORS = [0xff3333, 0xffaa33, 0xffff33, 0x33dd66, 0x33aaff, 0x7755ff, 0xdd55dd];
 const SIDEBAR_WIDTH = 256;
 const STAGE_VIEWPORT_WIDTH = 1024;
@@ -115,8 +116,15 @@ export class GameScene extends Phaser.Scene {
   private beamDirectionY = -1;
   private beamGraphics?: Phaser.GameObjects.Graphics;
   private knives: Phaser.GameObjects.Rectangle[] = [];
+  private knifeEffect?: Phaser.GameObjects.Graphics;
   private knivesActiveUntil = 0;
   private knifeAngle = 0;
+  private dashEffect?: Phaser.GameObjects.Graphics;
+  private dashEffectOriginX = 0;
+  private dashEffectOriginY = 0;
+  private dashEffectEndX = 0;
+  private dashEffectEndY = 0;
+  private dashEffectUntil = 0;
   private dangerZone?: Phaser.GameObjects.Rectangle;
   private guidePath?: Phaser.GameObjects.Graphics;
   private guideHideTimer?: Phaser.Time.TimerEvent;
@@ -194,6 +202,8 @@ export class GameScene extends Phaser.Scene {
     this.updateSuperDash(time);
     this.updatePlayer(time);
     this.updateKnives(time);
+    this.updateKnifeEffect(time);
+    this.updateDashEffect(time);
     this.updateGuideSkill(time);
     this.updateDashGauge(time);
     this.updateReload(time);
@@ -368,6 +378,8 @@ export class GameScene extends Phaser.Scene {
     this.dashChargeStartedAt = 0;
     this.dashRequiresRelease = false;
     this.dashInvulnerableUntil = 0;
+    this.dashEffect?.clear();
+    this.dashEffectUntil = 0;
     this.knives.forEach((knife) => knife.destroy());
     this.knives = [];
     this.knivesActiveUntil = 0;
@@ -657,11 +669,13 @@ export class GameScene extends Phaser.Scene {
 
   private updateKnives(time: number): void {
     if (this.knives.length === 0) {
+      this.knifeEffect?.clear();
       return;
     }
     if (time >= this.knivesActiveUntil) {
       this.knives.forEach((knife) => knife.destroy());
       this.knives = [];
+      this.knifeEffect?.clear();
       return;
     }
     this.knifeAngle += 0.18;
@@ -673,6 +687,33 @@ export class GameScene extends Phaser.Scene {
       );
       knife.setRotation(angle);
       this.destroyObjectsAtKnife(knife.x, knife.y);
+    });
+  }
+
+  private updateKnifeEffect(time: number): void {
+    if (this.knives.length === 0) {
+      return;
+    }
+    if (!this.knifeEffect) {
+      this.knifeEffect = this.add.graphics().setDepth(13);
+    }
+    const effect = this.knifeEffect;
+    const pulse = Math.sin(time / 90) * 4;
+    effect.clear();
+    effect.lineStyle(4, 0xffffff, 0.35);
+    effect.strokeCircle(this.player.x, this.player.y, KNIFE_RADIUS + pulse);
+    effect.lineStyle(2, 0x66ccff, 0.45);
+    effect.strokeCircle(this.player.x, this.player.y, KNIFE_RADIUS - 12 - pulse);
+    this.knives.forEach((knife, index) => {
+      const angle = this.knifeAngle + (Math.PI * 2 * index) / KNIFE_COUNT;
+      const trailLength = 24 + Math.abs(pulse) * 2;
+      const trailX = knife.x - Math.cos(angle) * trailLength;
+      const trailY = knife.y - Math.sin(angle) * trailLength;
+      effect.lineStyle(7, KNIFE_EFFECT_COLORS[index % KNIFE_EFFECT_COLORS.length], 0.55);
+      effect.beginPath();
+      effect.moveTo(trailX, trailY);
+      effect.lineTo(knife.x, knife.y);
+      effect.strokePath();
     });
   }
 
@@ -699,6 +740,14 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.beamActiveUntil > time) {
       this.destroyObjectsInBeam();
+      this.drawRainbowBeam(
+        BEAM_LENGTH,
+        this.beamOriginX,
+        this.beamOriginY,
+        this.beamDirectionX,
+        this.beamDirectionY,
+      );
+      this.drawBeamLaunchEffect(time);
     }
     if (this.beamRequiresRelease) {
       if (this.beamRequiresRelease && !this.skillConfirmKey.isDown) {
@@ -722,6 +771,7 @@ export class GameScene extends Phaser.Scene {
       1,
     );
     this.drawRainbowBeam(BEAM_CHARGE_LENGTH);
+    this.drawRainbowChargeEffect(progress, time);
     if (progress >= 1) {
       this.beamOriginX = this.player.x;
       this.beamOriginY = this.player.y;
@@ -775,6 +825,70 @@ export class GameScene extends Phaser.Scene {
       );
       this.beamGraphics.strokePath();
     }
+  }
+
+  private drawRainbowChargeEffect(progress: number, time: number): void {
+    if (!this.beamGraphics) {
+      return;
+    }
+    const pulse = Math.sin(time / 90) * 4;
+    const radius = 28 + progress * 18 + pulse;
+    const rotation = time / 260;
+    for (let index = 0; index < RAINBOW_COLORS.length; index += 1) {
+      const angle = rotation + (Math.PI * 2 * index) / RAINBOW_COLORS.length;
+      const startRadius = radius - 8;
+      const endRadius = radius + 8;
+      this.beamGraphics.lineStyle(5, RAINBOW_COLORS[index], 0.85);
+      this.beamGraphics.beginPath();
+      this.beamGraphics.moveTo(
+        this.player.x + Math.cos(angle) * startRadius,
+        this.player.y + Math.sin(angle) * startRadius,
+      );
+      this.beamGraphics.lineTo(
+        this.player.x + Math.cos(angle) * endRadius,
+        this.player.y + Math.sin(angle) * endRadius,
+      );
+      this.beamGraphics.strokePath();
+    }
+    this.beamGraphics.lineStyle(3, 0xffffff, 0.8);
+    this.beamGraphics.strokeCircle(this.player.x, this.player.y, radius);
+  }
+
+  private drawBeamLaunchEffect(time: number): void {
+    if (!this.beamGraphics) {
+      return;
+    }
+    const pulse = Math.sin(time / 70) * 6;
+    const perpendicularX = -this.beamDirectionY;
+    const perpendicularY = this.beamDirectionX;
+    const endX = this.beamOriginX + this.beamDirectionX * BEAM_LENGTH;
+    const endY = this.beamOriginY + this.beamDirectionY * BEAM_LENGTH;
+
+    this.beamGraphics.lineStyle(5, 0xffffff, 0.9);
+    this.beamGraphics.beginPath();
+    this.beamGraphics.moveTo(this.beamOriginX, this.beamOriginY);
+    this.beamGraphics.lineTo(endX, endY);
+    this.beamGraphics.strokePath();
+
+    for (let index = -1; index <= 1; index += 1) {
+      const offset = (index * 10) + pulse;
+      this.beamGraphics.lineStyle(3, 0xffffff, 0.45);
+      this.beamGraphics.beginPath();
+      this.beamGraphics.moveTo(
+        this.beamOriginX + perpendicularX * offset,
+        this.beamOriginY + perpendicularY * offset,
+      );
+      this.beamGraphics.lineTo(
+        endX + perpendicularX * offset * 0.5,
+        endY + perpendicularY * offset * 0.5,
+      );
+      this.beamGraphics.strokePath();
+    }
+
+    this.beamGraphics.fillStyle(0xffffff, 0.75);
+    this.beamGraphics.fillCircle(this.beamOriginX, this.beamOriginY, 18 + pulse);
+    this.beamGraphics.lineStyle(5, 0xffffff, 0.9);
+    this.beamGraphics.strokeCircle(endX, endY, 16 + Math.abs(pulse));
   }
 
   private destroyObjectsInBeam(): void {
@@ -929,6 +1043,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateSuperDash(time: number): void {
     if (this.selectedSkill !== 3) {
+      this.dashEffect?.clear();
       return;
     }
     if (this.dashRequiresRelease) {
@@ -969,6 +1084,11 @@ export class GameScene extends Phaser.Scene {
     const top = Math.min(originY, endY) - SUPER_DASH_WIDTH / 2;
     const bottom = Math.max(originY, endY) + SUPER_DASH_WIDTH / 2;
     this.destroyObjectsInBounds(left, right, top, bottom);
+    this.dashEffectOriginX = originX;
+    this.dashEffectOriginY = originY;
+    this.dashEffectEndX = endX;
+    this.dashEffectEndY = endY;
+    this.dashEffectUntil = time + 450;
     this.dashChargeStartedAt = 0;
     this.dashRequiresRelease = true;
     if (!this.debugMode) {
@@ -984,6 +1104,62 @@ export class GameScene extends Phaser.Scene {
         this.dashInvulnerableUntil = this.time.now + SUPER_DASH_INVULNERABLE_MS;
       },
     });
+  }
+
+  private updateDashEffect(time: number): void {
+    if (!this.dashEffect) {
+      this.dashEffect = this.add.graphics().setDepth(13);
+    }
+    this.dashEffect.clear();
+    if (this.selectedSkill !== 3) {
+      return;
+    }
+    if (this.dashChargeStartedAt > 0) {
+      const progress = Phaser.Math.Clamp(
+        (time - this.dashChargeStartedAt) / DASH_CHARGE_MS,
+        0,
+        1,
+      );
+      const pulse = Math.sin(time / 60) * 5;
+      this.dashEffect.lineStyle(4, 0xffdd66, 0.8);
+      this.dashEffect.strokeCircle(this.player.x, this.player.y, 30 + progress * 18 + pulse);
+      this.dashEffect.lineStyle(3, 0xffffff, 0.55);
+      this.dashEffect.strokeCircle(this.player.x, this.player.y, 20 + progress * 12);
+      return;
+    }
+    if (this.dashEffectUntil <= time) {
+      return;
+    }
+    const progress = Phaser.Math.Clamp(
+      1 - (this.dashEffectUntil - time) / 450,
+      0,
+      1,
+    );
+    const directionX = this.dashEffectEndX - this.dashEffectOriginX;
+    const directionY = this.dashEffectEndY - this.dashEffectOriginY;
+    const length = Math.hypot(directionX, directionY) || 1;
+    const perpendicularX = -directionY / length;
+    const perpendicularY = directionX / length;
+    for (let index = -2; index <= 2; index += 1) {
+      const offset = index * 12;
+      this.dashEffect.lineStyle(5, index % 2 === 0 ? 0xffffff : 0xffdd66, 0.65);
+      this.dashEffect.beginPath();
+      this.dashEffect.moveTo(
+        this.dashEffectOriginX + perpendicularX * offset,
+        this.dashEffectOriginY + perpendicularY * offset,
+      );
+      this.dashEffect.lineTo(
+        this.dashEffectEndX + perpendicularX * offset * (1 - progress),
+        this.dashEffectEndY + perpendicularY * offset * (1 - progress),
+      );
+      this.dashEffect.strokePath();
+    }
+    this.dashEffect.lineStyle(6, 0xffffff, 0.9);
+    this.dashEffect.strokeCircle(
+      this.dashEffectEndX,
+      this.dashEffectEndY,
+      24 + progress * 18,
+    );
   }
 
   private showGuidePath(): void {
@@ -1335,6 +1511,8 @@ export class GameScene extends Phaser.Scene {
     this.reloadGauge?.destroy();
     this.dashGauge?.destroy();
     this.dashMotion?.stop();
+    this.dashEffect?.destroy();
+    this.dashEffect = undefined;
     this.player.setAlpha(1);
     this.player.setScale(1);
     this.player.setVelocity(0, 0);
