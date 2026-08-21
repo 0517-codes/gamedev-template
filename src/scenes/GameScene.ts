@@ -10,6 +10,8 @@ type RoundConfig = {
   mazeWalls: number;
 };
 
+type SkillId = 1 | 2 | 3;
+
 const ROUND_CONFIGS: RoundConfig[] = [
   { carSpeed: 190, spawnDelay: 1250, laneCount: 4, carsPerRound: 500, bombDelay: 6200, bombCount: 5, mazeWalls: 5 },
   { carSpeed: 250, spawnDelay: 950, laneCount: 5, carsPerRound: 1000, bombDelay: 5000, bombCount: 8, mazeWalls: 7 },
@@ -23,10 +25,16 @@ const WARP_COOLDOWN_MS = 3000;
 const DASH_DURATION_MS = 10000;
 const GUIDE_DISPLAY_MS = 5000;
 const GUIDE_COOLDOWN_MS = 15000;
+const BEAM_CHARGE_MS = 5000;
 const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
 const MAZE_CELL_SIZE = 44;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
+const BEAM_LENGTH = MAZE_CELL_SIZE * 15;
+const BEAM_CHARGE_LENGTH = MAZE_CELL_SIZE;
+const BEAM_WIDTH = MAZE_CELL_SIZE * 3;
+const BEAM_DISPLAY_MS = 3000;
+const RAINBOW_COLORS = [0xff3333, 0xffaa33, 0xffff33, 0x33dd66, 0x33aaff, 0x7755ff, 0xdd55dd];
 const SIDEBAR_WIDTH = 256;
 const STAGE_VIEWPORT_WIDTH = 1024;
 const START_COLUMN = Math.floor(MAZE_COLUMNS / 2);
@@ -40,11 +48,11 @@ export class GameScene extends Phaser.Scene {
   private bullets!: Phaser.Physics.Arcade.Group;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private shiftKey!: Phaser.Input.Keyboard.Key;
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private fireKey!: Phaser.Input.Keyboard.Key;
   private reloadKey!: Phaser.Input.Keyboard.Key;
   private guideKey!: Phaser.Input.Keyboard.Key;
+  private skillConfirmKey!: Phaser.Input.Keyboard.Key;
   private escKey!: Phaser.Input.Keyboard.Key;
   private debugModeKeyW!: Phaser.Input.Keyboard.Key;
   private debugModeKeyQ!: Phaser.Input.Keyboard.Key;
@@ -55,7 +63,6 @@ export class GameScene extends Phaser.Scene {
   private totalSeconds = 0;
   private roundSeconds = 0;
   private speedBoostUntil = 0;
-  private dashReadyAt = 0;
   private warpReadyAt = 0;
   private paused = false;
   private transitioning = false;
@@ -74,6 +81,23 @@ export class GameScene extends Phaser.Scene {
   private shotDirectionY = -1;
   private debugMode = false;
   private guideReadyAt = 0;
+  private selectedSkill: SkillId = 1;
+  private skillSelectionActive = false;
+  private skillSelectionIndex = 0;
+  private skillSelectionOverlay?: Phaser.GameObjects.Rectangle;
+  private skillSelectionTitle?: Phaser.GameObjects.Text;
+  private skillSelectionInstruction?: Phaser.GameObjects.Text;
+  private skillCards: Phaser.GameObjects.Rectangle[] = [];
+  private skillCardLabels: Phaser.GameObjects.Text[] = [];
+  private skillSelectionConfig?: RoundConfig;
+  private beamChargeStartedAt = 0;
+  private beamRequiresRelease = false;
+  private beamActiveUntil = 0;
+  private beamOriginX = 0;
+  private beamOriginY = 0;
+  private beamDirectionX = 0;
+  private beamDirectionY = -1;
+  private beamGraphics?: Phaser.GameObjects.Graphics;
   private dangerZone?: Phaser.GameObjects.Rectangle;
   private guidePath?: Phaser.GameObjects.Graphics;
   private guideHideTimer?: Phaser.Time.TimerEvent;
@@ -96,7 +120,6 @@ export class GameScene extends Phaser.Scene {
     this.totalSeconds = 0;
     this.roundSeconds = 0;
     this.speedBoostUntil = 0;
-    this.dashReadyAt = 0;
     this.warpReadyAt = 0;
     this.hitCooldownUntil = 0;
     this.nextShotAt = 0;
@@ -108,6 +131,12 @@ export class GameScene extends Phaser.Scene {
     this.shotDirectionY = -1;
     this.debugMode = false;
     this.guideReadyAt = 0;
+    this.selectedSkill = 1;
+    this.skillSelectionActive = false;
+    this.skillSelectionIndex = 0;
+    this.beamChargeStartedAt = 0;
+    this.beamRequiresRelease = false;
+    this.beamActiveUntil = 0;
     this.paused = false;
     this.transitioning = false;
     this.createTextures();
@@ -120,6 +149,10 @@ export class GameScene extends Phaser.Scene {
     this.updateDebugMode();
     if (Phaser.Input.Keyboard.JustDown(this.escKey) && !this.transitioning) {
       this.togglePause();
+    }
+    if (this.skillSelectionActive) {
+      this.updateSkillSelection();
+      return;
     }
     if (this.paused || this.transitioning) {
       return;
@@ -134,6 +167,7 @@ export class GameScene extends Phaser.Scene {
       this.finishGame(false);
       return;
     }
+    this.updateBeamSkill(time);
     this.updatePlayer(time);
     this.updateDashGauge(time);
     this.updateReload(time);
@@ -215,7 +249,12 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.cars, this.walls);
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
     this.player.setCollideWorldBounds(true);
-    this.cameras.main.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
+    this.cameras.main.setBounds(
+      -SIDEBAR_WIDTH,
+      0,
+      WORLD_SIZE + SIDEBAR_WIDTH * 2,
+      WORLD_SIZE,
+    );
     this.cameras.main.centerOn(START_X, START_Y);
     this.cameras.main.startFollow(this.player, true, 1, 1);
 
@@ -242,11 +281,11 @@ export class GameScene extends Phaser.Scene {
       throw new Error('Keyboard input is required.');
     }
     this.cursors = keyboard.createCursorKeys();
-    this.shiftKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.fireKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
     this.reloadKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.guideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G);
+    this.skillConfirmKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
     this.escKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.debugModeKeyW = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
     this.debugModeKeyQ = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
@@ -260,6 +299,7 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.F,
       Phaser.Input.Keyboard.KeyCodes.G,
       Phaser.Input.Keyboard.KeyCodes.R,
+      Phaser.Input.Keyboard.KeyCodes.Z,
       Phaser.Input.Keyboard.KeyCodes.W,
       Phaser.Input.Keyboard.KeyCodes.Q,
     ]);
@@ -300,6 +340,11 @@ export class GameScene extends Phaser.Scene {
     this.guideHideTimer?.remove();
     this.guideHideTimer = undefined;
     this.dashMotion?.stop();
+    this.beamChargeStartedAt = 0;
+    this.beamRequiresRelease = false;
+    this.beamActiveUntil = 0;
+    this.beamGraphics?.destroy();
+    this.beamGraphics = undefined;
     this.player.setAlpha(1);
     this.player.setScale(1);
     this.startMarker?.destroy();
@@ -328,20 +373,126 @@ export class GameScene extends Phaser.Scene {
       hold: 700,
       yoyo: true,
       onComplete: () => {
-        this.transitioning = false;
-        this.spawnTimer = this.time.addEvent({
-          delay: (ROUND_TIME_LIMIT_SECONDS * 1000) / config.carsPerRound,
-          loop: true,
-          callback: this.spawnCar,
-          callbackScope: this,
-        });
-        this.bombTimer = this.time.addEvent({
-          delay: config.bombDelay,
-          loop: true,
-          callback: this.showDangerZone,
-          callbackScope: this,
-        });
+        this.showSkillSelection(config);
       },
+    });
+  }
+
+  private showSkillSelection(config: RoundConfig): void {
+    const centerX = SIDEBAR_WIDTH + STAGE_VIEWPORT_WIDTH / 2;
+    const centerY = this.scale.height / 2;
+    const cardWidth = 220;
+    const cardHeight = 260;
+    const cardGap = 28;
+    const cardY = centerY + 20;
+    const skillNames = ['虹色ビーム', 'ワープ', '道案内'];
+
+    this.skillSelectionActive = true;
+    this.skillSelectionIndex = 0;
+    this.skillSelectionOverlay = this.add.rectangle(
+      this.scale.width / 2,
+      centerY,
+      this.scale.width,
+      this.scale.height,
+      0x000000,
+      0.72,
+    ).setScrollFactor(0).setDepth(1200);
+    this.skillSelectionTitle = this.add.text(
+      centerX,
+      centerY - 180,
+      `ラウンド ${this.round}\n使用するスキルを選択`,
+      {
+        fontFamily: 'Georgia, serif',
+        fontSize: '32px',
+        color: '#ffffff',
+        align: 'center',
+        lineSpacing: 10,
+      },
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(1201);
+
+    skillNames.forEach((skillName, index) => {
+      const x = centerX + (index - 1) * (cardWidth + cardGap);
+      const card = this.add.rectangle(x, cardY, cardWidth, cardHeight, 0x222222, 1)
+        .setStrokeStyle(6, 0xffffff, index === 0 ? 1 : 0.35)
+        .setScrollFactor(0)
+        .setDepth(1201);
+      const label = this.add.text(x, cardY, `${index + 1}\n${skillName}`, {
+        fontFamily: 'Georgia, serif',
+        fontSize: '28px',
+        color: '#ffffff',
+        align: 'center',
+        lineSpacing: 18,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1202);
+      this.skillCards.push(card);
+      this.skillCardLabels.push(label);
+    });
+
+    this.skillSelectionInstruction = this.add.text(centerX, cardY + 180, '左右キーで選択　Zキーで決定', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '20px',
+      color: '#ffffff',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(1201);
+
+    this.skillSelectionConfig = config;
+  }
+
+  private updateSkillSelection(): void {
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.left)) {
+      this.skillSelectionIndex = (this.skillSelectionIndex + 2) % 3;
+      this.updateSkillCardHighlight();
+    } else if (Phaser.Input.Keyboard.JustDown(this.cursors.right)) {
+      this.skillSelectionIndex = (this.skillSelectionIndex + 1) % 3;
+      this.updateSkillCardHighlight();
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.skillConfirmKey)) {
+      this.confirmSkillSelection();
+    }
+  }
+
+  private updateSkillCardHighlight(): void {
+    this.skillCards.forEach((card, index) => {
+      card.setStrokeStyle(6, 0xffffff, index === this.skillSelectionIndex ? 1 : 0.35);
+    });
+  }
+
+  private confirmSkillSelection(): void {
+    const config = this.skillSelectionConfig;
+    if (!config) {
+      return;
+    }
+    this.selectedSkill = (this.skillSelectionIndex + 1) as SkillId;
+    this.beamRequiresRelease = this.selectedSkill === 1;
+    this.skillSelectionActive = false;
+    this.skillSelectionConfig = undefined;
+    this.skillSelectionOverlay?.destroy();
+    this.skillSelectionOverlay = undefined;
+    this.skillSelectionTitle?.destroy();
+    this.skillSelectionTitle = undefined;
+    this.skillSelectionInstruction?.destroy();
+    this.skillSelectionInstruction = undefined;
+    this.skillCards.forEach((card) => card.destroy());
+    this.skillCards = [];
+    this.skillCardLabels.forEach((label) => label.destroy());
+    this.skillCardLabels = [];
+    this.startRoundAfterSkillSelection(config);
+  }
+
+  private startRoundAfterSkillSelection(config: RoundConfig): void {
+    if (!this.transitioning) {
+      return;
+    }
+    this.transitioning = false;
+    this.spawnTimer = this.time.addEvent({
+      delay: (ROUND_TIME_LIMIT_SECONDS * 1000) / config.carsPerRound,
+      loop: true,
+      callback: this.spawnCar,
+      callbackScope: this,
+    });
+    this.bombTimer = this.time.addEvent({
+      delay: config.bombDelay,
+      loop: true,
+      callback: this.showDangerZone,
+      callbackScope: this,
     });
   }
 
@@ -357,7 +508,8 @@ export class GameScene extends Phaser.Scene {
       Math.floor(120 + (lane + 1) * laneHeight - 20),
     );
     const fromLeft = Phaser.Math.Between(0, 1) === 0;
-    const x = Phaser.Math.Between(40, WORLD_SIZE - 40);
+    const carSpawnOffset = 100;
+    const x = fromLeft ? -carSpawnOffset : WORLD_SIZE + carSpawnOffset;
     const car = this.cars.create(x, y, 'car') as Phaser.Physics.Arcade.Sprite;
     const speed = Phaser.Math.Between(
       Math.floor(config.carSpeed * 0.7),
@@ -371,6 +523,13 @@ export class GameScene extends Phaser.Scene {
 
   private updatePlayer(time: number): void {
     const baseSpeed = time < this.speedBoostUntil ? 330 : 210;
+    if (this.selectedSkill === 1
+      && this.skillConfirmKey.isDown
+      && this.beamChargeStartedAt > 0
+      && !this.beamRequiresRelease) {
+      this.player.setVelocity(0, 0);
+      return;
+    }
     if (this.cursors.up.isDown) {
       this.player.setVelocityY(-baseSpeed);
       this.shotDirectionX = 0;
@@ -396,14 +555,9 @@ export class GameScene extends Phaser.Scene {
 
     this.player.x = Phaser.Math.Clamp(this.player.x, 30, WORLD_SIZE - 30);
 
-    if (Phaser.Input.Keyboard.JustDown(this.shiftKey) && time >= this.speedBoostUntil) {
-      if (time >= this.dashReadyAt) {
-        this.speedBoostUntil = time + DASH_DURATION_MS;
-        this.dashReadyAt = this.speedBoostUntil;
-        this.createDashMotion();
-      }
-    }
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && (this.debugMode || time >= this.warpReadyAt)) {
+    if (this.selectedSkill === 2
+      && Phaser.Input.Keyboard.JustDown(this.spaceKey)
+      && (this.debugMode || time >= this.warpReadyAt)) {
       const previousX = this.player.x;
       const previousY = this.player.y;
       this.player.x = Phaser.Math.Clamp(
@@ -423,16 +577,135 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private createDashMotion(): void {
-    this.dashMotion?.stop();
-    this.dashMotion = this.tweens.add({
-      targets: this.player,
-      alpha: 0.55,
-      duration: 140,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+  private updateBeamSkill(time: number): void {
+    if (this.selectedSkill !== 1) {
+      this.beamGraphics?.destroy();
+      this.beamGraphics = undefined;
+      return;
+    }
+    if (this.beamActiveUntil > time) {
+      this.destroyObjectsInBeam();
+    }
+    if (this.beamRequiresRelease) {
+      if (this.beamRequiresRelease && !this.skillConfirmKey.isDown) {
+        this.beamRequiresRelease = false;
+        this.beamChargeStartedAt = 0;
+      }
+      return;
+    }
+    if (!this.skillConfirmKey.isDown) {
+      this.beamChargeStartedAt = 0;
+      this.beamGraphics?.destroy();
+      this.beamGraphics = undefined;
+      return;
+    }
+    if (this.beamChargeStartedAt === 0) {
+      this.beamChargeStartedAt = time;
+    }
+    const progress = Phaser.Math.Clamp(
+      (time - this.beamChargeStartedAt) / BEAM_CHARGE_MS,
+      0,
+      1,
+    );
+    this.drawRainbowBeam(BEAM_CHARGE_LENGTH);
+    if (progress >= 1) {
+      this.beamOriginX = this.player.x;
+      this.beamOriginY = this.player.y;
+      this.beamDirectionX = this.shotDirectionX;
+      this.beamDirectionY = this.shotDirectionY;
+      this.beamActiveUntil = time + BEAM_DISPLAY_MS;
+      this.drawRainbowBeam(
+        BEAM_LENGTH,
+        this.beamOriginX,
+        this.beamOriginY,
+        this.beamDirectionX,
+        this.beamDirectionY,
+      );
+      this.destroyObjectsInBeam();
+      this.beamChargeStartedAt = 0;
+      this.beamRequiresRelease = true;
+      this.time.delayedCall(BEAM_DISPLAY_MS, () => {
+        this.beamActiveUntil = 0;
+        this.beamGraphics?.destroy();
+        this.beamGraphics = undefined;
+      });
+    }
+  }
+
+  private drawRainbowBeam(
+    length: number,
+    originX = this.player.x,
+    originY = this.player.y,
+    directionX = this.shotDirectionX,
+    directionY = this.shotDirectionY,
+  ): void {
+    if (!this.beamGraphics) {
+      this.beamGraphics = this.add.graphics().setDepth(12);
+    }
+    const endX = originX + directionX * length;
+    const endY = originY + directionY * length;
+    const segmentCount = RAINBOW_COLORS.length;
+    const segmentLength = length / segmentCount;
+    this.beamGraphics.clear();
+    for (let index = 0; index < segmentCount; index += 1) {
+      const endRatio = (index + 1) / segmentCount;
+      this.beamGraphics.lineStyle(BEAM_WIDTH, RAINBOW_COLORS[index], 0.9);
+      this.beamGraphics.beginPath();
+      this.beamGraphics.moveTo(
+        originX + directionX * segmentLength * index,
+        originY + directionY * segmentLength * index,
+      );
+      this.beamGraphics.lineTo(
+        originX + (endX - originX) * endRatio,
+        originY + (endY - originY) * endRatio,
+      );
+      this.beamGraphics.strokePath();
+    }
+  }
+
+  private destroyObjectsInBeam(): void {
+    const endX = this.beamOriginX + this.beamDirectionX * BEAM_LENGTH;
+    const endY = this.beamOriginY + this.beamDirectionY * BEAM_LENGTH;
+    const beamLeft = Math.min(this.beamOriginX, endX) - BEAM_WIDTH / 2;
+    const beamRight = Math.max(this.beamOriginX, endX) + BEAM_WIDTH / 2;
+    const beamTop = Math.min(this.beamOriginY, endY) - BEAM_WIDTH / 2;
+    const beamBottom = Math.max(this.beamOriginY, endY) + BEAM_WIDTH / 2;
+
+    for (const child of this.walls.children) {
+      const wall = child as Phaser.Physics.Arcade.Sprite;
+      if (this.isObjectInBeam(wall, beamLeft, beamRight, beamTop, beamBottom)) {
+        wall.destroy();
+      }
+    }
+    for (const child of this.cars.children) {
+      const car = child as Phaser.Physics.Arcade.Sprite;
+      if (this.isObjectInBeam(car, beamLeft, beamRight, beamTop, beamBottom)) {
+        car.destroy();
+      }
+    }
+    for (const child of this.bombs.children) {
+      const bomb = child as Phaser.Physics.Arcade.Sprite;
+      if (this.isObjectInBeam(bomb, beamLeft, beamRight, beamTop, beamBottom)) {
+        bomb.destroy();
+      }
+    }
+  }
+
+  private isObjectInBeam(
+    object: Phaser.Physics.Arcade.Sprite,
+    beamLeft: number,
+    beamRight: number,
+    beamTop: number,
+    beamBottom: number,
+  ): boolean {
+    const objectLeft = object.x - object.displayWidth / 2;
+    const objectRight = object.x + object.displayWidth / 2;
+    const objectTop = object.y - object.displayHeight / 2;
+    const objectBottom = object.y + object.displayHeight / 2;
+    return objectRight >= beamLeft
+      && objectLeft <= beamRight
+      && objectBottom >= beamTop
+      && objectTop <= beamBottom;
   }
 
   private updateDashGauge(time: number): void {
@@ -546,7 +819,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateGuideSkill(time: number): void {
-    if (Phaser.Input.Keyboard.JustDown(this.guideKey) && time >= this.guideReadyAt) {
+    if (this.selectedSkill === 3
+      && Phaser.Input.Keyboard.JustDown(this.guideKey)
+      && time >= this.guideReadyAt) {
       this.showGuidePath();
       this.guideReadyAt = time + GUIDE_COOLDOWN_MS;
     }
@@ -921,9 +1196,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud(time: number): void {
-    const boost = Math.max(0, (this.speedBoostUntil - time) / 1000);
     const warp = Math.max(0, (this.warpReadyAt - time) / 1000);
     const guide = Math.max(0, (this.guideReadyAt - time) / 1000);
+    const beamCharge = this.beamChargeStartedAt > 0
+      ? Phaser.Math.Clamp((time - this.beamChargeStartedAt) / BEAM_CHARGE_MS, 0, 1)
+      : 0;
     this.hud.setText([
       ...(this.debugMode ? ['DEBUGMODE'] : []),
       `ラウンド ${this.round} / 3`,
@@ -931,13 +1208,16 @@ export class GameScene extends Phaser.Scene {
       `スコア ${this.score}`,
       `弾薬  ${this.reloading ? 'リロード中' : `${this.ammo} / ${MAGAZINE_SIZE}`}`,
       `衝突  ${this.hits} / 2`,
+      `使用スキル  ${this.selectedSkill}`,
       '',
-      '[SHIFT] ダッシュ（最大10秒）',
-      `  ${boost > 0 ? `残り ${boost.toFixed(1)}秒` : '準備完了'}`,
-      '[SPACE] ワープ',
-      `  ${warp > 0 ? `あと ${warp.toFixed(1)}秒` : '準備完了'}`,
-      '[G] 道案内（5秒）',
-      `  ${guide > 0 ? `あと ${guide.toFixed(1)}秒` : '準備完了'}`,
+      `[1] [Z] 虹色ビーム（5秒長押し）${this.selectedSkill === 1 ? '' : '（使用不可）'}`,
+      `  ${this.selectedSkill === 1
+        ? `チャージ ${Math.round(beamCharge * 100)}%`
+        : '使用不可'}`,
+      `[2] [SPACE] ワープ${this.selectedSkill === 2 ? '' : '（使用不可）'}`,
+      `  ${this.selectedSkill === 2 ? (warp > 0 ? `あと ${warp.toFixed(1)}秒` : '準備完了') : '使用不可'}`,
+      `[3] [G] 道案内（5秒）${this.selectedSkill === 3 ? '' : '（使用不可）'}`,
+      `  ${this.selectedSkill === 3 ? (guide > 0 ? `あと ${guide.toFixed(1)}秒` : '準備完了') : '使用不可'}`,
       '[F] 連射   [R] リロード',
       '矢印キー: 移動',
     ]);
