@@ -143,10 +143,6 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
-  preload(): void {
-    this.load.image('player', 'from-PixAI-2047432052441684514-1.png');
-  }
-
   create(): void {
     this.round = 1;
     this.hits = 0;
@@ -228,6 +224,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createTextures(): void {
+    const playerGraphics = this.add.graphics();
+    playerGraphics.fillStyle(0x777777, 1);
+    playerGraphics.fillRoundedRect(0, 0, 40, 40, 8);
+    playerGraphics.generateTexture('player', 40, 40);
+    playerGraphics.destroy();
+
     const carGraphics = this.add.graphics();
     carGraphics.fillStyle(0x333333, 1);
     carGraphics.fillRoundedRect(0, 0, 86, 34, 7);
@@ -280,7 +282,6 @@ export class GameScene extends Phaser.Scene {
     this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xaaaaaa);
 
     this.player = this.physics.add.sprite(START_X, START_Y, 'player');
-    this.player.setDisplaySize(58, 96);
     this.player.setCollideWorldBounds(true);
     if (this.player.body) {
       this.player.body.setSize(28, 28, true);
