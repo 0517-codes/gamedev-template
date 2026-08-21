@@ -24,11 +24,16 @@ const RELOAD_DURATION_MS = 2000;
 const DASH_DURATION_MS = 10000;
 const GUIDE_DISPLAY_MS = 5000;
 const GUIDE_COOLDOWN_MS = 15000;
+const DASH_CHARGE_MS = 1000;
+const SUPER_DASH_COOLDOWN_MS = 6000;
+const SUPER_DASH_INVULNERABLE_MS = 2000;
 const BEAM_CHARGE_MS = 5000;
 const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
 const MAZE_CELL_SIZE = 44;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
+const SUPER_DASH_LENGTH = MAZE_CELL_SIZE * 6;
+const SUPER_DASH_WIDTH = MAZE_CELL_SIZE * 2;
 const BEAM_LENGTH = MAZE_CELL_SIZE * 15;
 const BEAM_CHARGE_LENGTH = MAZE_CELL_SIZE;
 const BEAM_WIDTH = MAZE_CELL_SIZE * 3;
@@ -87,6 +92,11 @@ export class GameScene extends Phaser.Scene {
   private shotDirectionY = -1;
   private debugMode = false;
   private guideReadyAt = 0;
+  private guidePathPoints: Array<{ row: number; column: number }> = [];
+  private dashChargeStartedAt = 0;
+  private dashRequiresRelease = false;
+  private dashReadyAt = 0;
+  private dashInvulnerableUntil = 0;
   private selectedSkill: SkillId = 1;
   private skillSelectionActive = false;
   private skillSelectionIndex = 0;
@@ -110,7 +120,6 @@ export class GameScene extends Phaser.Scene {
   private dangerZone?: Phaser.GameObjects.Rectangle;
   private guidePath?: Phaser.GameObjects.Graphics;
   private guideHideTimer?: Phaser.Time.TimerEvent;
-  private guidePathPoints: Array<{ row: number; column: number }> = [];
   private reloadGauge?: Phaser.GameObjects.Graphics;
   private dashGauge?: Phaser.GameObjects.Graphics;
   private dashMotion?: Phaser.Tweens.Tween;
@@ -141,6 +150,10 @@ export class GameScene extends Phaser.Scene {
     this.shotDirectionY = -1;
     this.debugMode = false;
     this.guideReadyAt = 0;
+    this.dashChargeStartedAt = 0;
+    this.dashRequiresRelease = false;
+    this.dashReadyAt = 0;
+    this.dashInvulnerableUntil = 0;
     this.selectedSkill = 1;
     this.skillSelectionActive = false;
     this.skillSelectionIndex = 0;
@@ -178,12 +191,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.updateBeamSkill(time);
+    this.updateSuperDash(time);
     this.updatePlayer(time);
     this.updateKnives(time);
+    this.updateGuideSkill(time);
     this.updateDashGauge(time);
     this.updateReload(time);
     this.fireWeapon(time);
-    this.updateGuideSkill(time);
     this.recycleCars();
     this.recycleBullets();
     this.updateBombs();
@@ -351,6 +365,9 @@ export class GameScene extends Phaser.Scene {
     this.guideHideTimer?.remove();
     this.guideHideTimer = undefined;
     this.dashMotion?.stop();
+    this.dashChargeStartedAt = 0;
+    this.dashRequiresRelease = false;
+    this.dashInvulnerableUntil = 0;
     this.knives.forEach((knife) => knife.destroy());
     this.knives = [];
     this.knivesActiveUntil = 0;
@@ -399,7 +416,7 @@ export class GameScene extends Phaser.Scene {
     const cardHeight = 260;
     const cardGap = 28;
     const cardY = centerY + 20;
-    const skillNames = ['虹色ビーム', '回転ナイフ', '道案内'];
+    const skillNames = ['虹色ビーム', '回転ナイフ', '超速ダッシュ'];
 
     this.skillSelectionActive = true;
     this.skillSelectionIndex = 0;
@@ -541,6 +558,12 @@ export class GameScene extends Phaser.Scene {
       && this.skillConfirmKey.isDown
       && this.beamChargeStartedAt > 0
       && !this.beamRequiresRelease) {
+      this.player.setVelocity(0, 0);
+      return;
+    }
+    if (this.selectedSkill === 3
+      && this.dashChargeStartedAt > 0
+      && !this.dashRequiresRelease) {
       this.player.setVelocity(0, 0);
       return;
     }
@@ -761,28 +784,36 @@ export class GameScene extends Phaser.Scene {
     const beamRight = Math.max(this.beamOriginX, endX) + BEAM_WIDTH / 2;
     const beamTop = Math.min(this.beamOriginY, endY) - BEAM_WIDTH / 2;
     const beamBottom = Math.max(this.beamOriginY, endY) + BEAM_WIDTH / 2;
+    this.destroyObjectsInBounds(beamLeft, beamRight, beamTop, beamBottom);
+  }
 
+  private destroyObjectsInBounds(
+    beamLeft: number,
+    beamRight: number,
+    beamTop: number,
+    beamBottom: number,
+  ): void {
     for (const child of this.walls.children) {
       const wall = child as Phaser.Physics.Arcade.Sprite;
-      if (this.isObjectInBeam(wall, beamLeft, beamRight, beamTop, beamBottom)) {
+      if (this.isObjectInBounds(wall, beamLeft, beamRight, beamTop, beamBottom)) {
         wall.destroy();
       }
     }
     for (const child of this.cars.children) {
       const car = child as Phaser.Physics.Arcade.Sprite;
-      if (this.isObjectInBeam(car, beamLeft, beamRight, beamTop, beamBottom)) {
+      if (this.isObjectInBounds(car, beamLeft, beamRight, beamTop, beamBottom)) {
         car.destroy();
       }
     }
     for (const child of this.bombs.children) {
       const bomb = child as Phaser.Physics.Arcade.Sprite;
-      if (this.isObjectInBeam(bomb, beamLeft, beamRight, beamTop, beamBottom)) {
+      if (this.isObjectInBounds(bomb, beamLeft, beamRight, beamTop, beamBottom)) {
         bomb.destroy();
       }
     }
   }
 
-  private isObjectInBeam(
+  private isObjectInBounds(
     object: Phaser.Physics.Arcade.Sprite,
     beamLeft: number,
     beamRight: number,
@@ -889,12 +920,70 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateGuideSkill(time: number): void {
-    if (this.selectedSkill === 3
-      && Phaser.Input.Keyboard.JustDown(this.guideKey)
+    if (Phaser.Input.Keyboard.JustDown(this.guideKey)
       && time >= this.guideReadyAt) {
       this.showGuidePath();
       this.guideReadyAt = time + GUIDE_COOLDOWN_MS;
     }
+  }
+
+  private updateSuperDash(time: number): void {
+    if (this.selectedSkill !== 3) {
+      return;
+    }
+    if (this.dashRequiresRelease) {
+      if (!this.skillConfirmKey.isDown) {
+        this.dashRequiresRelease = false;
+        this.dashChargeStartedAt = 0;
+      }
+      return;
+    }
+    if (!this.skillConfirmKey.isDown) {
+      this.dashChargeStartedAt = 0;
+      return;
+    }
+    if (this.dashChargeStartedAt === 0 && time >= this.dashReadyAt) {
+      this.dashChargeStartedAt = time;
+    }
+    if (this.dashChargeStartedAt > 0
+      && time - this.dashChargeStartedAt >= DASH_CHARGE_MS) {
+      this.startSuperDash(time);
+    }
+  }
+
+  private startSuperDash(time: number): void {
+    const originX = this.player.x;
+    const originY = this.player.y;
+    const endX = Phaser.Math.Clamp(
+      originX + this.shotDirectionX * SUPER_DASH_LENGTH,
+      30,
+      WORLD_SIZE - 30,
+    );
+    const endY = Phaser.Math.Clamp(
+      originY + this.shotDirectionY * SUPER_DASH_LENGTH,
+      82,
+      WORLD_SIZE - 82,
+    );
+    const left = Math.min(originX, endX) - SUPER_DASH_WIDTH / 2;
+    const right = Math.max(originX, endX) + SUPER_DASH_WIDTH / 2;
+    const top = Math.min(originY, endY) - SUPER_DASH_WIDTH / 2;
+    const bottom = Math.max(originY, endY) + SUPER_DASH_WIDTH / 2;
+    this.destroyObjectsInBounds(left, right, top, bottom);
+    this.dashChargeStartedAt = 0;
+    this.dashRequiresRelease = true;
+    if (!this.debugMode) {
+      this.dashReadyAt = time + SUPER_DASH_COOLDOWN_MS;
+    }
+    this.tweens.add({
+      targets: this.player,
+      x: endX,
+      y: endY,
+      duration: 140,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        this.dashInvulnerableUntil = this.time.now + SUPER_DASH_INVULNERABLE_MS;
+      },
+    });
   }
 
   private showGuidePath(): void {
@@ -1007,8 +1096,8 @@ export class GameScene extends Phaser.Scene {
     openRight: boolean[][],
     openDown: boolean[][],
   ): Array<{ row: number; column: number }> {
-    const start = { row: MAZE_ROWS - 1, column: Math.floor(MAZE_COLUMNS / 2) };
-    const goal = { row: 0, column: Math.floor(MAZE_COLUMNS / 2) };
+    const start = { row: MAZE_ROWS - 1, column: START_COLUMN };
+    const goal = { row: 0, column: START_COLUMN };
     const keyFor = (cell: { row: number; column: number }): string => `${cell.row},${cell.column}`;
     const queue: Array<{ row: number; column: number }> = [start];
     const previous = new Map<string, { row: number; column: number } | undefined>();
@@ -1097,7 +1186,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleHit(): void {
-    if (this.debugMode || this.transitioning || this.paused || this.time.now < this.hitCooldownUntil) {
+    if (this.debugMode
+      || this.transitioning
+      || this.paused
+      || this.time.now < this.hitCooldownUntil
+      || this.time.now < this.dashInvulnerableUntil) {
       return;
     }
     this.hitCooldownUntil = this.time.now + 1200;
@@ -1271,6 +1364,10 @@ export class GameScene extends Phaser.Scene {
     const knifeCooldown = Math.max(0, (this.knifeReadyAt - time) / 1000);
     const warpCooldown = Math.max(0, (this.warpReadyAt - time) / 1000);
     const guide = Math.max(0, (this.guideReadyAt - time) / 1000);
+    const dashCooldown = Math.max(0, (this.dashReadyAt - time) / 1000);
+    const dashCharge = this.dashChargeStartedAt > 0
+      ? Phaser.Math.Clamp((time - this.dashChargeStartedAt) / DASH_CHARGE_MS, 0, 1)
+      : 0;
     const beamCharge = this.beamChargeStartedAt > 0
       ? Phaser.Math.Clamp((time - this.beamChargeStartedAt) / BEAM_CHARGE_MS, 0, 1)
       : 0;
@@ -1291,8 +1388,12 @@ export class GameScene extends Phaser.Scene {
       `  ${this.selectedSkill === 2 ? (knifeCooldown > 0 ? `あと ${knifeCooldown.toFixed(1)}秒` : '準備完了') : '使用不可'}`,
       '[SPACE] ワープ',
       `  ${warpCooldown > 0 ? `あと ${warpCooldown.toFixed(1)}秒` : '準備完了'}`,
-      `[3] [G] 道案内（5秒）${this.selectedSkill === 3 ? '' : '（使用不可）'}`,
-      `  ${this.selectedSkill === 3 ? (guide > 0 ? `あと ${guide.toFixed(1)}秒` : '準備完了') : '使用不可'}`,
+      `[3] [Z] 超速ダッシュ（1秒長押し）${this.selectedSkill === 3 ? '' : '（使用不可）'}`,
+      `  ${this.selectedSkill === 3
+        ? (dashCharge > 0 ? `チャージ ${Math.round(dashCharge * 100)}%` : (dashCooldown > 0 ? `あと ${dashCooldown.toFixed(1)}秒` : '準備完了'))
+        : '使用不可'}`,
+      '[G] 道案内',
+      `  ${guide > 0 ? `あと ${guide.toFixed(1)}秒` : '準備完了'}`,
       '[F] 連射   [R] リロード',
       '矢印キー: 移動',
     ]);
