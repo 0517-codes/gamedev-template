@@ -15,11 +15,14 @@ const ROUND_CONFIGS: RoundConfig[] = [
   { carSpeed: 250, spawnDelay: 950, laneCount: 5, carsPerRound: 1000, bombDelay: 5000, bombCount: 8, mazeWalls: 7 },
   { carSpeed: 315, spawnDelay: 700, laneCount: 6, carsPerRound: 1200, bombDelay: 3900, bombCount: 11, mazeWalls: 9 },
 ];
+type RewardType = 'speed' | 'hp' | 'warp';
+
+const REWARD_TYPES: RewardType[] = ['speed', 'hp', 'warp'];
 const ROUND_TIME_LIMIT_SECONDS = 180;
 const BULLET_FIRE_INTERVAL_MS = 120;
 const MAGAZINE_SIZE = 12;
 const RELOAD_DURATION_MS = 2000;
-const WARP_COOLDOWN_MS = 3000;
+const WARP_COOLDOWN_MS = 0;//30002
 const DASH_DURATION_MS = 10000;
 const GUIDE_DISPLAY_MS = 5000;
 const GUIDE_COOLDOWN_MS = 15000;
@@ -33,6 +36,11 @@ const STAGE_VIEWPORT_WIDTH = 1024;
 const START_COLUMN = Math.floor(MAZE_COLUMNS / 2);
 const START_X = START_COLUMN * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
 const START_Y = WORLD_SIZE - MAZE_CELL_SIZE + 8;
+const REWARD_LABELS: Record<RewardType, string> = {
+  speed: '速度上昇',
+  hp: 'HP増加',
+  warp: 'ワープ待ち時間 -20%',
+};
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -53,6 +61,9 @@ export class GameScene extends Phaser.Scene {
   private carsSpawned = 0;
   private totalSeconds = 0;
   private roundSeconds = 0;
+  private speedMultiplier = 1;
+  private maxHits = 2;
+  private warpCooldownMs = WARP_COOLDOWN_MS;
   private speedBoostUntil = 0;
   private dashReadyAt = 0;
   private warpReadyAt = 0;
@@ -81,6 +92,10 @@ export class GameScene extends Phaser.Scene {
   private dashMotion?: Phaser.Tweens.Tween;
   private startMarker?: Phaser.GameObjects.Arc;
   private startLabel?: Phaser.GameObjects.Text;
+  private rewardTimer?: Phaser.Time.TimerEvent;
+  private rewardOverlay?: Phaser.GameObjects.Container;
+  private rewardCards: Phaser.GameObjects.Rectangle[] = [];
+  private rewardSelection = 0;
 
   constructor() {
     super('GameScene');
@@ -93,6 +108,9 @@ export class GameScene extends Phaser.Scene {
     this.carsSpawned = 0;
     this.totalSeconds = 0;
     this.roundSeconds = 0;
+    this.speedMultiplier = 1;
+    this.maxHits = 2;
+    this.warpCooldownMs = WARP_COOLDOWN_MS;
     this.speedBoostUntil = 0;
     this.dashReadyAt = 0;
     this.warpReadyAt = 0;
@@ -352,7 +370,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updatePlayer(time: number): void {
-    const baseSpeed = time < this.speedBoostUntil ? 330 : 210;
+    const baseSpeed = (time < this.speedBoostUntil ? 330 : 210) * this.speedMultiplier;
     if (this.cursors.up.isDown) {
       this.player.setVelocityY(-baseSpeed);
       this.shotDirectionX = 0;
@@ -403,7 +421,7 @@ export class GameScene extends Phaser.Scene {
         WORLD_SIZE - 82,
       );
       this.createWarpMotion(previousX, previousY);
-      this.warpReadyAt = time + WARP_COOLDOWN_MS;
+      this.warpReadyAt = time + this.warpCooldownMs;
     }
   }
 
@@ -754,7 +772,7 @@ export class GameScene extends Phaser.Scene {
       repeat: 5,
       onComplete: () => this.player.clearTint(),
     });
-    if (this.hits >= 2) {
+    if (this.hits >= this.maxHits) {
       this.finishGame(false);
     }
   }
@@ -856,12 +874,83 @@ export class GameScene extends Phaser.Scene {
         if (this.round >= ROUND_CONFIGS.length) {
           this.finishGame(true);
         } else {
-          this.round += 1;
-          this.roundSeconds = 0;
-          this.startRound();
+          this.showRewardRoulette();
         }
       },
     });
+  }
+
+  private showRewardRoulette(): void {
+    const centerX = SIDEBAR_WIDTH + STAGE_VIEWPORT_WIDTH / 2;
+    const centerY = this.scale.height / 2;
+    const cardWidth = 220;
+    const cardGap = 24;
+    const totalWidth = cardWidth * REWARD_TYPES.length + cardGap * (REWARD_TYPES.length - 1);
+    this.rewardOverlay = this.add.container(0, 0).setScrollFactor(0).setDepth(1200);
+    this.rewardOverlay.add(this.add.text(centerX, centerY - 155, '強化ルーレット', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '42px',
+      color: '#222222',
+      fontStyle: 'bold',
+    }).setOrigin(0.5));
+    this.rewardOverlay.add(this.add.text(centerX, centerY - 105, '次のラウンドへ進む強化を決定します', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '18px',
+      color: '#222222',
+    }).setOrigin(0.5));
+    this.rewardCards = REWARD_TYPES.map((reward, index) => {
+      const x = centerX - totalWidth / 2 + cardWidth / 2 + index * (cardWidth + cardGap);
+      const card = this.add.rectangle(x, centerY, cardWidth, 140, 0xf1f1f1)
+        .setStrokeStyle(5, 0x666666, 1);
+      const label = this.add.text(x, centerY, REWARD_LABELS[reward], {
+        fontFamily: 'Georgia, serif',
+        fontSize: '23px',
+        color: '#222222',
+        align: 'center',
+        wordWrap: { width: cardWidth - 24 },
+      }).setOrigin(0.5);
+      this.rewardOverlay?.add([card, label]);
+      return card;
+    });
+    this.rewardSelection = 0;
+    let spinCount = 0;
+    this.rewardTimer = this.time.addEvent({
+      delay: 180,
+      repeat: 10,
+      callback: () => {
+        this.rewardCards.forEach((card, index) => card.setStrokeStyle(5, index === this.rewardSelection ? 0xffffff : 0x666666, 1));
+        this.rewardSelection = (this.rewardSelection + 1) % REWARD_TYPES.length;
+        spinCount += 1;
+        if (spinCount === 11) {
+          this.rewardSelection = Phaser.Math.Between(0, REWARD_TYPES.length - 1);
+          this.rewardCards.forEach((card, index) => card.setStrokeStyle(7, index === this.rewardSelection ? 0x222222 : 0x666666, 1));
+          this.applyReward(REWARD_TYPES[this.rewardSelection]);
+          this.time.delayedCall(900, this.startNextRoundAfterReward, [], this);
+        }
+      },
+      callbackScope: this,
+    });
+  }
+
+  private applyReward(reward: RewardType): void {
+    if (reward === 'speed') {
+      this.speedMultiplier *= 1.1;
+    } else if (reward === 'hp') {
+      this.maxHits += 1;
+    } else {
+      this.warpCooldownMs *= 0.8;
+    }
+  }
+
+  private startNextRoundAfterReward(): void {
+    this.rewardTimer?.remove();
+    this.rewardTimer = undefined;
+    this.rewardOverlay?.destroy(true);
+    this.rewardOverlay = undefined;
+    this.rewardCards = [];
+    this.round += 1;
+    this.roundSeconds = 0;
+    this.startRound();
   }
 
   private finishGame(won: boolean): void {
@@ -916,7 +1005,7 @@ export class GameScene extends Phaser.Scene {
       `残り時間  ${Math.max(0, ROUND_TIME_LIMIT_SECONDS - this.roundSeconds).toFixed(1)} 秒`,
       `スコア ${this.score}`,
       `弾薬  ${this.reloading ? 'リロード中' : `${this.ammo} / ${MAGAZINE_SIZE}`}`,
-      `衝突  ${this.hits} / 2`,
+      `HP  ${this.maxHits - this.hits} / ${this.maxHits}`,
       '',
       '[SHIFT] ダッシュ（最大10秒）',
       `  ${boost > 0 ? `残り ${boost.toFixed(1)}秒` : '準備完了'}`,

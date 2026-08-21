@@ -25,31 +25,32 @@ export class ResultScene extends Phaser.Scene {
 
       this.add.rectangle(width / 2, height / 2, width, height, 0x222222);
     if (won) {
-      const image = this.add.image(width / 2, 105, 'simapanbisyojo');
-      const scale = Math.min(240 / image.width, 130 / image.height, 1);
-      image.setScale(scale);
+        const image = this.add.image(width / 2, height / 2, 'simapanbisyojo')
+          .setDepth(1);
+        const scale = Math.min(4200 / image.width, 2300 / image.height);
+        image.setScale(scale).setAlpha(0.35);
     }
-    this.add.text(width / 2, 190, title, {
+    this.add.text(width / 2, 295, title, {
       fontFamily: 'Georgia, serif',
       fontSize: '64px',
       color,
       fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.add.text(width / 2, 330, `生存時間  ${data.totalSeconds.toFixed(1)} 秒`, {
+    }).setOrigin(0.5).setDepth(2);
+    this.add.text(width / 2, 395, `生存時間  ${data.totalSeconds.toFixed(1)} 秒`, {
       fontFamily: 'Georgia, serif',
       fontSize: '30px',
       color: '#ffffff',
-    }).setOrigin(0.5);
-    this.add.text(width / 2, 385, `スコア  ${data.score}`, {
+    }).setOrigin(0.5).setDepth(2);
+    this.add.text(width / 2, 450, `スコア  ${data.score}`, {
       fontFamily: 'Georgia, serif',
       fontSize: '26px',
       color: '#ffffff',
-    }).setOrigin(0.5);
-    const prompt = this.add.text(width / 2, 550, 'Enterキーでタイトルへ', {
+    }).setOrigin(0.5).setDepth(2);
+    const prompt = this.add.text(width / 2, 600, 'Enterキーでタイトルへ', {
       fontFamily: 'Georgia, serif',
       fontSize: '26px',
       color,
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setDepth(2);
 
     this.tweens.add({
       targets: prompt,
