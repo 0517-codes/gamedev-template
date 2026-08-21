@@ -26,6 +26,7 @@ const GUIDE_COOLDOWN_MS = 15000;
 const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
 const MAZE_CELL_SIZE = 44;
+const MAZE_WALL_THICKNESS = 8;
 const WORLD_SIZE = MAZE_COLUMNS * MAZE_CELL_SIZE;
 const SIDEBAR_WIDTH = 256;
 const STAGE_VIEWPORT_WIDTH = 1024;
@@ -375,6 +376,10 @@ export class GameScene extends Phaser.Scene {
       this.player.setVelocityX(0);
     }
 
+    if (this.player.body && this.player.body.velocity.length() > baseSpeed) {
+      this.player.body.velocity.normalize().scale(baseSpeed);
+    }
+
     this.player.x = Phaser.Math.Clamp(this.player.x, 30, WORLD_SIZE - 30);
 
     if (Phaser.Input.Keyboard.JustDown(this.shiftKey) && time >= this.speedBoostUntil) {
@@ -559,7 +564,7 @@ export class GameScene extends Phaser.Scene {
     const rows = MAZE_ROWS;
     const cellWidth = MAZE_CELL_SIZE;
     const cellHeight = MAZE_CELL_SIZE;
-    const wallThickness = 8;
+    const wallThickness = MAZE_WALL_THICKNESS;
     const openRight = Array.from({ length: rows }, () => Array(columns - 1).fill(false));
     const openDown = Array.from({ length: rows - 1 }, () => Array(columns).fill(false));
     const visited = Array.from({ length: rows }, () => Array(columns).fill(false));
@@ -689,6 +694,9 @@ export class GameScene extends Phaser.Scene {
   private addMazeWall(x: number, y: number, width: number, height: number): void {
     const wall = this.walls.create(x, y, 'wall') as Phaser.Physics.Arcade.Sprite;
     wall.setDisplaySize(width, height);
+    if (wall.body) {
+      wall.body.setSize(width, height);
+    }
     wall.refreshBody();
   }
 
