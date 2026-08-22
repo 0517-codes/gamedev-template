@@ -143,6 +143,7 @@ export class GameScene extends Phaser.Scene {
   private chestOpened = false;
   private keyLabel?: Phaser.GameObjects.Text;
   private keyCollected = false;
+  private keyPosition?: { row: number; column: number };
 
   constructor() {
     super('GameScene');
@@ -437,6 +438,7 @@ export class GameScene extends Phaser.Scene {
     this.chestContents = [];
     this.chestOpened = false;
     this.keyCollected = false;
+    this.keyPosition = undefined;
     this.walls.clear(true, true);
     this.createMaze(config.mazeWalls);
     this.startMarker = this.add.circle(START_X, START_Y, 18, 0xf1f1f1, 1)
@@ -600,6 +602,7 @@ export class GameScene extends Phaser.Scene {
       this.mazeOpenRight,
       this.mazeOpenDown,
       { row: chestRow, column: chestColumn },
+      this.keyPosition,
     );
     const chestX = chestColumn * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
     const chestY = chestRow * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
@@ -634,6 +637,7 @@ export class GameScene extends Phaser.Scene {
     this.keyCollected = false;
     const keyRow = Phaser.Math.Between(0, 4);
     const keyColumn = Phaser.Math.Between(0, MAZE_COLUMNS - 1);
+    this.keyPosition = { row: keyRow, column: keyColumn };
     const keyX = keyColumn * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
     const keyY = keyRow * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
     this.guidePathPoints = this.findMazePath(
@@ -1201,9 +1205,9 @@ export class GameScene extends Phaser.Scene {
 
   private updateGuideSkill(time: number): void {
     if (Phaser.Input.Keyboard.JustDown(this.guideKey)
-      && time >= this.guideReadyAt) {
+      && (this.debugMode || time >= this.guideReadyAt)) {
       this.showGuidePath();
-      this.guideReadyAt = time + GUIDE_COOLDOWN_MS;
+      this.guideReadyAt = this.debugMode ? time : time + GUIDE_COOLDOWN_MS;
     }
   }
 
@@ -1439,8 +1443,8 @@ export class GameScene extends Phaser.Scene {
     openRight: boolean[][],
     openDown: boolean[][],
     goal = { row: 0, column: START_COLUMN },
+    start = { row: MAZE_ROWS - 1, column: START_COLUMN },
   ): Array<{ row: number; column: number }> {
-    const start = { row: MAZE_ROWS - 1, column: START_COLUMN };
     const keyFor = (cell: { row: number; column: number }): string => `${cell.row},${cell.column}`;
     const queue: Array<{ row: number; column: number }> = [start];
     const previous = new Map<string, { row: number; column: number } | undefined>();
