@@ -96,6 +96,8 @@ export class GameScene extends Phaser.Scene {
   private debugMode = false;
   private guideReadyAt = 0;
   private guidePathPoints: Array<{ row: number; column: number }> = [];
+  private mazeOpenRight: boolean[][] = [];
+  private mazeOpenDown: boolean[][] = [];
   private dashChargeStartedAt = 0;
   private dashRequiresRelease = false;
   private dashReadyAt = 0;
@@ -225,9 +227,6 @@ export class GameScene extends Phaser.Scene {
     this.updateBombs();
     this.updateHud(time);
 
-    if (this.player.y <= 82) {
-      this.finishRound();
-    }
   }
 
   private createTextures(): void {
@@ -570,8 +569,19 @@ export class GameScene extends Phaser.Scene {
       (skill) => skill !== this.selectedSkill,
     );
     this.chestOpened = false;
-    const chestX = START_X;
-    const chestY = START_Y - MAZE_CELL_SIZE - 12;
+    let chestRow = Phaser.Math.Between(0, MAZE_ROWS - 1);
+    let chestColumn = Phaser.Math.Between(0, MAZE_COLUMNS - 1);
+    while (chestRow === MAZE_ROWS - 1 && chestColumn === START_COLUMN) {
+      chestRow = Phaser.Math.Between(0, MAZE_ROWS - 1);
+      chestColumn = Phaser.Math.Between(0, MAZE_COLUMNS - 1);
+    }
+    this.guidePathPoints = this.findMazePath(
+      this.mazeOpenRight,
+      this.mazeOpenDown,
+      { row: chestRow, column: chestColumn },
+    );
+    const chestX = chestColumn * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
+    const chestY = chestRow * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
     const chest = this.chests.create(chestX, chestY, 'chest') as Phaser.Physics.Arcade.Sprite;
     chest.setDepth(8);
     chest.refreshBody();
@@ -596,6 +606,7 @@ export class GameScene extends Phaser.Scene {
       color: '#222222',
       backgroundColor: '#ffdd88',
     });
+    this.finishRound();
   }
 
   private getSkillName(skill: SkillId): string {
@@ -1336,7 +1347,8 @@ export class GameScene extends Phaser.Scene {
       openRight[row][column] = true;
     }
 
-    this.guidePathPoints = this.findMazePath(openRight, openDown);
+    this.mazeOpenRight = openRight;
+    this.mazeOpenDown = openDown;
 
     for (let row = 0; row < rows; row += 1) {
       for (let column = 0; column < columns - 1; column += 1) {
@@ -1368,9 +1380,9 @@ export class GameScene extends Phaser.Scene {
   private findMazePath(
     openRight: boolean[][],
     openDown: boolean[][],
+    goal = { row: 0, column: START_COLUMN },
   ): Array<{ row: number; column: number }> {
     const start = { row: MAZE_ROWS - 1, column: START_COLUMN };
-    const goal = { row: 0, column: START_COLUMN };
     const keyFor = (cell: { row: number; column: number }): string => `${cell.row},${cell.column}`;
     const queue: Array<{ row: number; column: number }> = [start];
     const previous = new Map<string, { row: number; column: number } | undefined>();
