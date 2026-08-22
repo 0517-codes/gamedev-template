@@ -286,7 +286,7 @@ export class GameScene extends Phaser.Scene {
     this.player.setDisplaySize(28, 28);
     this.player.setCollideWorldBounds(true);
     if (this.player.body) {
-      this.player.body.setSize(28, 28, true);
+      this.player.body.setSize(20, 20, true);
     }
 
     this.cars = this.physics.add.group({ allowGravity: false, immovable: true });
@@ -681,6 +681,11 @@ export class GameScene extends Phaser.Scene {
         this.player.setTexture('player-front');
       }
     }
+    const isWalking = this.cursors.up.isDown
+      || this.cursors.down.isDown
+      || this.cursors.left.isDown
+      || this.cursors.right.isDown;
+    this.player.setAngle(isWalking ? Math.sin(time / 110) * 4 : 0);
 
     this.player.x = Phaser.Math.Clamp(this.player.x, 30, WORLD_SIZE - 30);
 
