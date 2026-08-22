@@ -59,6 +59,7 @@ export class GameScene extends Phaser.Scene {
   private bullets!: Phaser.Physics.Arcade.Group;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
   private chests!: Phaser.Physics.Arcade.StaticGroup;
+  private keys!: Phaser.Physics.Arcade.StaticGroup;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private shiftKey!: Phaser.Input.Keyboard.Key;
   private spaceKey!: Phaser.Input.Keyboard.Key;
@@ -140,6 +141,8 @@ export class GameScene extends Phaser.Scene {
   private chestLabel?: Phaser.GameObjects.Text;
   private chestContents: SkillId[] = [];
   private chestOpened = false;
+  private keyLabel?: Phaser.GameObjects.Text;
+  private keyCollected = false;
 
   constructor() {
     super('GameScene');
@@ -267,6 +270,18 @@ export class GameScene extends Phaser.Scene {
     chestGraphics.fillRect(28, 16, 8, 20);
     chestGraphics.generateTexture('chest', 64, 46);
     chestGraphics.destroy();
+
+    const keyGraphics = this.add.graphics();
+    keyGraphics.fillStyle(0xffd34e, 1);
+    keyGraphics.fillCircle(9, 9, 6);
+    keyGraphics.fillStyle(0x222222, 1);
+    keyGraphics.fillCircle(9, 9, 2);
+    keyGraphics.fillStyle(0xffd34e, 1);
+    keyGraphics.fillRect(14, 7, 12, 4);
+    keyGraphics.fillRect(22, 11, 3, 5);
+    keyGraphics.fillRect(18, 11, 3, 3);
+    keyGraphics.generateTexture('key', 28, 20);
+    keyGraphics.destroy();
   }
 
   private createWorld(): void {
@@ -293,10 +308,12 @@ export class GameScene extends Phaser.Scene {
     this.bullets = this.physics.add.group({ allowGravity: false });
     this.walls = this.physics.add.staticGroup();
     this.chests = this.physics.add.staticGroup();
+    this.keys = this.physics.add.staticGroup();
     this.physics.add.overlap(this.player, this.cars, this.handleHit, undefined, this);
     this.physics.add.overlap(this.player, this.bombs, this.handleBombHit, undefined, this);
     this.physics.add.overlap(this.bullets, this.cars, this.handleBulletHit, undefined, this);
     this.physics.add.overlap(this.player, this.chests, this.openChest, undefined, this);
+    this.physics.add.overlap(this.player, this.keys, this.collectKey, undefined, this);
     this.physics.add.collider(this.player, this.walls);
     this.physics.add.collider(this.cars, this.walls);
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
@@ -414,8 +431,12 @@ export class GameScene extends Phaser.Scene {
     this.chests.clear(true, true);
     this.chestLabel?.destroy();
     this.chestLabel = undefined;
+    this.keys.clear(true, true);
+    this.keyLabel?.destroy();
+    this.keyLabel = undefined;
     this.chestContents = [];
     this.chestOpened = false;
+    this.keyCollected = false;
     this.walls.clear(true, true);
     this.createMaze(config.mazeWalls);
     this.startMarker = this.add.circle(START_X, START_Y, 18, 0xf1f1f1, 1)
@@ -548,7 +569,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.transitioning) {
       return;
     }
-    this.createChest();
+    this.createKey();
     this.transitioning = false;
     this.spawnTimer = this.time.addEvent({
       delay: (ROUND_TIME_LIMIT_SECONDS * 1000) / config.carsPerRound,
@@ -595,7 +616,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private openChest(): void {
-    if (this.chestOpened) {
+    if (this.chestOpened || !this.keyCollected) {
       return;
     }
     this.chestOpened = true;
@@ -607,6 +628,43 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#ffdd88',
     });
     this.finishRound();
+  }
+
+  private createKey(): void {
+    this.keyCollected = false;
+    const keyRow = Phaser.Math.Between(0, 4);
+    const keyColumn = Phaser.Math.Between(0, MAZE_COLUMNS - 1);
+    const keyX = keyColumn * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
+    const keyY = keyRow * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
+    this.guidePathPoints = this.findMazePath(
+      this.mazeOpenRight,
+      this.mazeOpenDown,
+      { row: keyRow, column: keyColumn },
+    );
+    const key = this.keys.create(keyX, keyY, 'key') as Phaser.Physics.Arcade.Sprite;
+    key.setDepth(8);
+    key.refreshBody();
+    this.keyLabel = this.add.text(keyX, keyY - 32, '鍵', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '18px',
+      color: '#222222',
+      backgroundColor: '#f1f1f1',
+      padding: { x: 5, y: 3 },
+    }).setOrigin(0.5).setDepth(9);
+  }
+
+  private collectKey(): void {
+    if (this.keyCollected) {
+      return;
+    }
+    this.keyCollected = true;
+    this.keys.clear(true, true);
+    this.keyLabel?.setText('鍵を取得しました');
+    this.keyLabel?.setStyle({
+      color: '#222222',
+      backgroundColor: '#ffdd88',
+    });
+    this.createChest();
   }
 
   private getSkillName(skill: SkillId): string {
@@ -1616,8 +1674,11 @@ export class GameScene extends Phaser.Scene {
     this.guidePath?.destroy();
     this.guideHideTimer?.remove();
     this.chests.clear(true, true);
+    this.keys.clear(true, true);
     this.chestLabel?.destroy();
     this.chestLabel = undefined;
+    this.keyLabel?.destroy();
+    this.keyLabel = undefined;
     this.knives.forEach((knife) => knife.destroy());
     this.knives = [];
     this.reloadGauge?.destroy();
