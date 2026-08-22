@@ -11,6 +11,7 @@ type RoundConfig = {
 };
 
 type SkillId = 1 | 2 | 3;
+type SkillSlot = 'z' | 'x' | 'c';
 
 const ROUND_CONFIGS: RoundConfig[] = [
   { carSpeed: 190, spawnDelay: 1250, laneCount: 4, carsPerRound: 500, bombDelay: 6200, bombCount: 5, mazeWalls: 5 },
@@ -67,6 +68,8 @@ export class GameScene extends Phaser.Scene {
   private reloadKey!: Phaser.Input.Keyboard.Key;
   private guideKey!: Phaser.Input.Keyboard.Key;
   private skillConfirmKey!: Phaser.Input.Keyboard.Key;
+  private secondStageSkillKey!: Phaser.Input.Keyboard.Key;
+  private skillUseKey!: Phaser.Input.Keyboard.Key;
   private escKey!: Phaser.Input.Keyboard.Key;
   private debugModeKeyW!: Phaser.Input.Keyboard.Key;
   private debugModeKeyQ!: Phaser.Input.Keyboard.Key;
@@ -77,7 +80,6 @@ export class GameScene extends Phaser.Scene {
   private totalSeconds = 0;
   private roundSeconds = 0;
   private speedBoostUntil = 0;
-  private knifeReadyAt = 0;
   private warpReadyAt = 0;
   private paused = false;
   private transitioning = false;
@@ -100,10 +102,13 @@ export class GameScene extends Phaser.Scene {
   private mazeOpenRight: boolean[][] = [];
   private mazeOpenDown: boolean[][] = [];
   private dashChargeStartedAt = 0;
+  private dashChargeSlot?: SkillSlot;
   private dashRequiresRelease = false;
-  private dashReadyAt = 0;
   private dashInvulnerableUntil = 0;
   private selectedSkill: SkillId = 1;
+  private firstStageSkill?: SkillId;
+  private secondStageSkill?: SkillId;
+  private thirdStageSkill?: SkillId;
   private skillSelectionActive = false;
   private skillSelectionIndex = 0;
   private skillSelectionOverlay?: Phaser.GameObjects.Rectangle;
@@ -112,6 +117,7 @@ export class GameScene extends Phaser.Scene {
   private skillCards: Phaser.GameObjects.Rectangle[] = [];
   private skillCardLabels: Phaser.GameObjects.Text[] = [];
   private skillSelectionConfig?: RoundConfig;
+  private skillCooldowns: Record<SkillSlot, number> = { z: 0, x: 0, c: 0 };
   private beamChargeStartedAt = 0;
   private beamRequiresRelease = false;
   private beamActiveUntil = 0;
@@ -164,7 +170,6 @@ export class GameScene extends Phaser.Scene {
     this.totalSeconds = 0;
     this.roundSeconds = 0;
     this.speedBoostUntil = 0;
-    this.knifeReadyAt = 0;
     this.warpReadyAt = 0;
     this.hitCooldownUntil = 0;
     this.nextShotAt = 0;
@@ -177,8 +182,8 @@ export class GameScene extends Phaser.Scene {
     this.debugMode = false;
     this.guideReadyAt = 0;
     this.dashChargeStartedAt = 0;
+    this.dashChargeSlot = undefined;
     this.dashRequiresRelease = false;
-    this.dashReadyAt = 0;
     this.dashInvulnerableUntil = 0;
     this.selectedSkill = 1;
     this.skillSelectionActive = false;
@@ -357,6 +362,8 @@ export class GameScene extends Phaser.Scene {
     this.reloadKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.guideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.G);
     this.skillConfirmKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
+    this.secondStageSkillKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X);
+    this.skillUseKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C);
     this.escKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.debugModeKeyW = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
     this.debugModeKeyQ = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
@@ -372,6 +379,8 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.G,
       Phaser.Input.Keyboard.KeyCodes.R,
       Phaser.Input.Keyboard.KeyCodes.Z,
+      Phaser.Input.Keyboard.KeyCodes.X,
+      Phaser.Input.Keyboard.KeyCodes.C,
       Phaser.Input.Keyboard.KeyCodes.W,
       Phaser.Input.Keyboard.KeyCodes.Q,
     ]);
@@ -551,7 +560,14 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.selectedSkill = (this.skillSelectionIndex + 1) as SkillId;
-    this.beamRequiresRelease = this.selectedSkill === 1;
+    if (this.round === 1) {
+      this.firstStageSkill = this.selectedSkill;
+    } else if (this.round === 2) {
+      this.secondStageSkill = this.selectedSkill;
+    } else {
+      this.thirdStageSkill = this.selectedSkill;
+    }
+    this.beamRequiresRelease = false;
     this.skillSelectionActive = false;
     this.skillSelectionConfig = undefined;
     this.skillSelectionOverlay?.destroy();
@@ -588,9 +604,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createChest(): void {
-    this.chestContents = ([1, 2, 3] as SkillId[]).filter(
-      (skill) => skill !== this.selectedSkill,
-    );
+    this.chestContents = [1, 2, 3];
     this.chestOpened = false;
     let chestRow = Phaser.Math.Between(0, MAZE_ROWS - 1);
     let chestColumn = Phaser.Math.Between(0, MAZE_COLUMNS - 1);
@@ -681,6 +695,52 @@ export class GameScene extends Phaser.Scene {
     return '超速ダッシュ';
   }
 
+  private isSkillKeyDown(skill: SkillId): boolean {
+    return this.getSkillSlotDown(skill) !== undefined;
+  }
+
+  private isSkillSlotDown(slot: SkillSlot): boolean {
+    if (slot === 'z') {
+      return this.skillConfirmKey.isDown;
+    }
+    if (slot === 'x') {
+      return this.secondStageSkillKey.isDown;
+    }
+    return this.skillUseKey.isDown;
+  }
+
+  private getSkillSlotDown(skill: SkillId): SkillSlot | undefined {
+    if (this.thirdStageSkill === skill && this.skillUseKey.isDown) {
+      return 'c';
+    }
+    if (this.secondStageSkill === skill && this.secondStageSkillKey.isDown) {
+      return 'x';
+    }
+    if (this.firstStageSkill === skill && this.skillConfirmKey.isDown) {
+      return 'z';
+    }
+    return undefined;
+  }
+
+  private getSkillSlotJustDown(skill: SkillId): SkillSlot | undefined {
+    if (this.thirdStageSkill === skill && Phaser.Input.Keyboard.JustDown(this.skillUseKey)) {
+      return 'c';
+    }
+    if (this.secondStageSkill === skill && Phaser.Input.Keyboard.JustDown(this.secondStageSkillKey)) {
+      return 'x';
+    }
+    if (this.firstStageSkill === skill && Phaser.Input.Keyboard.JustDown(this.skillConfirmKey)) {
+      return 'z';
+    }
+    return undefined;
+  }
+
+  private isSkillOwned(skill: SkillId): boolean {
+    return this.firstStageSkill === skill
+      || this.secondStageSkill === skill
+      || this.thirdStageSkill === skill;
+  }
+
   private spawnCar(): void {
     const config = ROUND_CONFIGS[this.round - 1];
     if (!config || this.paused || this.transitioning || this.carsSpawned >= config.carsPerRound) {
@@ -712,14 +772,13 @@ export class GameScene extends Phaser.Scene {
       this.speedBoostUntil = time + DASH_DURATION_MS;
       this.createDashMotion();
     }
-    if (this.selectedSkill === 1
-      && this.skillConfirmKey.isDown
+    if (this.isSkillKeyDown(1)
       && this.beamChargeStartedAt > 0
       && !this.beamRequiresRelease) {
       this.player.setVelocity(0, 0);
       return;
     }
-    if (this.selectedSkill === 3
+    if (this.isSkillKeyDown(3)
       && this.dashChargeStartedAt > 0
       && !this.dashRequiresRelease) {
       this.player.setVelocity(0, 0);
@@ -762,10 +821,9 @@ export class GameScene extends Phaser.Scene {
 
     this.player.x = Phaser.Math.Clamp(this.player.x, 30, WORLD_SIZE - 30);
 
-    if (this.selectedSkill === 2
-      && Phaser.Input.Keyboard.JustDown(this.skillConfirmKey)
-      && (this.debugMode || time >= this.knifeReadyAt)) {
-      this.startKnives(time);
+    const knifeSlot = this.getSkillSlotJustDown(2);
+    if (knifeSlot && (this.debugMode || time >= this.skillCooldowns[knifeSlot])) {
+      this.startKnives(time, knifeSlot);
     }
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey)
       && (this.debugMode || time >= this.warpReadyAt)) {
@@ -809,13 +867,13 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private startKnives(time: number): void {
+  private startKnives(time: number, slot: SkillSlot): void {
     this.knives.forEach((knife) => knife.destroy());
     this.knives = [];
     this.knifeAngle = 0;
     this.knivesActiveUntil = time + KNIFE_DURATION_MS;
     if (!this.debugMode) {
-      this.knifeReadyAt = time + KNIFE_COOLDOWN_MS;
+      this.skillCooldowns[slot] = time + KNIFE_COOLDOWN_MS;
     }
     for (let index = 0; index < KNIFE_COUNT; index += 1) {
       const knife = this.add.rectangle(this.player.x, this.player.y, KNIFE_SIZE, KNIFE_SIZE / 4, 0xdddddd)
@@ -891,7 +949,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateBeamSkill(time: number): void {
-    if (this.selectedSkill !== 1) {
+    if (!this.isSkillOwned(1)) {
       this.beamGraphics?.destroy();
       this.beamGraphics = undefined;
       return;
@@ -908,13 +966,13 @@ export class GameScene extends Phaser.Scene {
       this.drawBeamLaunchEffect(time);
     }
     if (this.beamRequiresRelease) {
-      if (this.beamRequiresRelease && !this.skillConfirmKey.isDown) {
+      if (this.beamRequiresRelease && !this.isSkillKeyDown(1)) {
         this.beamRequiresRelease = false;
         this.beamChargeStartedAt = 0;
       }
       return;
     }
-    if (!this.skillConfirmKey.isDown) {
+    if (!this.isSkillKeyDown(1)) {
       this.beamChargeStartedAt = 0;
       this.beamGraphics?.destroy();
       this.beamGraphics = undefined;
@@ -1212,31 +1270,36 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateSuperDash(time: number): void {
-    if (this.selectedSkill !== 3) {
+    if (!this.isSkillOwned(3)) {
       this.dashEffect?.clear();
       return;
     }
+    const dashSlot = this.dashChargeSlot ?? this.getSkillSlotDown(3);
     if (this.dashRequiresRelease) {
-      if (!this.skillConfirmKey.isDown) {
+      if (!dashSlot || !this.isSkillSlotDown(dashSlot)) {
         this.dashRequiresRelease = false;
         this.dashChargeStartedAt = 0;
+        this.dashChargeSlot = undefined;
       }
       return;
     }
-    if (!this.skillConfirmKey.isDown) {
+    if (!dashSlot || !this.isSkillSlotDown(dashSlot)) {
       this.dashChargeStartedAt = 0;
+      this.dashChargeSlot = undefined;
       return;
     }
-    if (this.dashChargeStartedAt === 0 && time >= this.dashReadyAt) {
+    if (this.dashChargeStartedAt === 0
+      && (this.debugMode || time >= this.skillCooldowns[dashSlot])) {
       this.dashChargeStartedAt = time;
+      this.dashChargeSlot = dashSlot;
     }
     if (this.dashChargeStartedAt > 0
       && time - this.dashChargeStartedAt >= DASH_CHARGE_MS) {
-      this.startSuperDash(time);
+      this.startSuperDash(time, dashSlot);
     }
   }
 
-  private startSuperDash(time: number): void {
+  private startSuperDash(time: number, slot: SkillSlot): void {
     const originX = this.player.x;
     const originY = this.player.y;
     const endX = Phaser.Math.Clamp(
@@ -1260,9 +1323,10 @@ export class GameScene extends Phaser.Scene {
     this.dashEffectEndY = endY;
     this.dashEffectUntil = time + 450;
     this.dashChargeStartedAt = 0;
+    this.dashChargeSlot = slot;
     this.dashRequiresRelease = true;
     if (!this.debugMode) {
-      this.dashReadyAt = time + SUPER_DASH_COOLDOWN_MS;
+      this.skillCooldowns[slot] = time + SUPER_DASH_COOLDOWN_MS;
     }
     this.tweens.add({
       targets: this.player,
@@ -1281,7 +1345,7 @@ export class GameScene extends Phaser.Scene {
       this.dashEffect = this.add.graphics().setDepth(13);
     }
     this.dashEffect.clear();
-    if (this.selectedSkill !== 3) {
+    if (!this.isSkillOwned(3)) {
       return;
     }
     if (this.dashChargeStartedAt > 0) {
@@ -1717,16 +1781,31 @@ export class GameScene extends Phaser.Scene {
 
   private updateHud(time: number): void {
     const speedBoost = Math.max(0, (this.speedBoostUntil - time) / 1000);
-    const knifeCooldown = Math.max(0, (this.knifeReadyAt - time) / 1000);
     const warpCooldown = Math.max(0, (this.warpReadyAt - time) / 1000);
     const guide = Math.max(0, (this.guideReadyAt - time) / 1000);
-    const dashCooldown = Math.max(0, (this.dashReadyAt - time) / 1000);
     const dashCharge = this.dashChargeStartedAt > 0
       ? Phaser.Math.Clamp((time - this.dashChargeStartedAt) / DASH_CHARGE_MS, 0, 1)
       : 0;
     const beamCharge = this.beamChargeStartedAt > 0
       ? Phaser.Math.Clamp((time - this.beamChargeStartedAt) / BEAM_CHARGE_MS, 0, 1)
       : 0;
+    const skillControls: Array<{ slot: SkillSlot; skill?: SkillId }> = [
+      { slot: 'z', skill: this.firstStageSkill },
+      { slot: 'x', skill: this.secondStageSkill },
+      { slot: 'c', skill: this.thirdStageSkill },
+    ];
+    const skillLines = skillControls.flatMap(({ slot, skill }) => {
+      if (skill === undefined) {
+        return [];
+      }
+      const cooldown = Math.max(0, (this.skillCooldowns[slot] - time) / 1000);
+      const status = skill === 1
+        ? `チャージ ${Math.round(beamCharge * 100)}%`
+        : skill === 3 && dashCharge > 0
+          ? `チャージ ${Math.round(dashCharge * 100)}%`
+        : cooldown > 0 ? `あと ${cooldown.toFixed(1)}秒` : '準備完了';
+      return [`[${slot.toUpperCase()}] ${this.getSkillName(skill)}`, `  ${status}`];
+    });
     this.hud.setText([
       ...(this.debugMode ? ['DEBUGMODE'] : []),
       `ラウンド ${this.round} / 3`,
@@ -1734,22 +1813,14 @@ export class GameScene extends Phaser.Scene {
       `スコア ${this.score}`,
       `弾薬  ${this.reloading ? 'リロード中' : `${this.ammo} / ${MAGAZINE_SIZE}`}`,
       `衝突  ${this.hits} / 2`,
-      `使用スキル  ${this.selectedSkill}`,
+      `今回選択  ${this.selectedSkill}`,
+      `所持スキル  Z:${this.firstStageSkill ?? '-'}  X:${this.secondStageSkill ?? '-'}  C:${this.thirdStageSkill ?? '-'}`,
       '',
       '[SHIFT] 高速移動\n（最大10秒）',
       `  ${speedBoost > 0 ? `残り ${speedBoost.toFixed(1)}秒` : '準備完了'}`,
-      `[1] [Z] 虹色ビーム\n（5秒長押し）${this.selectedSkill === 1 ? '' : '（使用不可）'}`,
-      `  ${this.selectedSkill === 1
-        ? `チャージ ${Math.round(beamCharge * 100)}%`
-        : '使用不可'}`,
-      `[2] [Z] 回転ナイフ\n（4本）${this.selectedSkill === 2 ? '' : '（使用不可）'}`,
-      `  ${this.selectedSkill === 2 ? (knifeCooldown > 0 ? `あと ${knifeCooldown.toFixed(1)}秒` : '準備完了') : '使用不可'}`,
+      ...skillLines,
       '[SPACE] ワープ',
       `  ${warpCooldown > 0 ? `あと ${warpCooldown.toFixed(1)}秒` : '準備完了'}`,
-      `[3] [Z] 超速ダッシュ\n（1秒長押し）${this.selectedSkill === 3 ? '' : '（使用不可）'}`,
-      `  ${this.selectedSkill === 3
-        ? (dashCharge > 0 ? `チャージ ${Math.round(dashCharge * 100)}%` : (dashCooldown > 0 ? `あと ${dashCooldown.toFixed(1)}秒` : '準備完了'))
-        : '使用不可'}`,
       '[G] 道案内',
       `  ${guide > 0 ? `あと ${guide.toFixed(1)}秒` : '準備完了'}`,
       '[F] 連射   [R] リロード',
