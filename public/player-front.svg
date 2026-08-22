@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28" shape-rendering="crispEdges">
+<rect width="28" height="28" fill="none"/>
+<!-- hair -->
+<path fill="#f08aaa" d="M8 2h12v1h3v2h2v9h-2v2h-2v-3h-1V8H8v5H7v3H5v-2H3V7h2V4h3z"/>
+<path fill="#ffd1df" d="M9 2h10v2h3v5h-2V7h-2V5h-8v2H8v5H6V6h3z"/>
+<!-- face and glasses -->
+<path fill="#ffd8cf" d="M9 8h10v2h2v6h-2v3H9v-2H7v-7h2z"/>
+<path fill="#8bd5e8" d="M8 10h5v1H8zm8 0h5v1h-5zM8 11h1v3H8zm12 0h1v3h-1z"/>
+<rect x="10" y="11" width="2" height="1" fill="#526878"/><rect x="17" y="11" width="2" height="1" fill="#526878"/>
+<rect x="13" y="12" width="2" height="1" fill="#526878"/>
+<!-- sweater -->
+<path fill="#91c9e2" d="M8 18h12v2h3v5h-4v-3h-2v4h-6v-4H9v3H5v-5h3z"/>
+<path fill="#b9e4f1" d="M10 18h8v3h-2v2h-4v-2h-2z"/>
+<!-- skirt/legs -->
+<rect x="10" y="24" width="3" height="2" fill="#ffd8cf"/><rect x="15" y="24" width="3" height="2" fill="#ffd8cf"/>
+<!-- thigh-high socks -->
+<path fill="#f8fbff" d="M9 25h4v3H8v-1H7v-2zm6 0h4v2h-1v1h-5v-3z"/>
+<rect x="8" y="26" width="5" height="1" fill="#79bddb"/><rect x="15" y="26" width="5" height="1" fill="#79bddb"/>
+</svg>

@@ -144,7 +144,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image('player', 'from-PixAI-2047432052441684514-1.png');
+    this.load.image('player-front', 'player-front.svg');
+    this.load.image('player-back', 'player-back.svg');
+    this.load.image('player-right', 'player-right.svg');
+    this.load.image('player-left', 'player-left.svg');
   }
 
   create(): void {
@@ -279,8 +282,8 @@ export class GameScene extends Phaser.Scene {
     this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xaaaaaa);
     this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xaaaaaa);
 
-    this.player = this.physics.add.sprite(START_X, START_Y, 'player');
-    this.player.setDisplaySize(58, 96);
+    this.player = this.physics.add.sprite(START_X, START_Y, 'player-front');
+    this.player.setDisplaySize(28, 28);
     this.player.setCollideWorldBounds(true);
     if (this.player.body) {
       this.player.body.setSize(28, 28, true);
@@ -664,12 +667,19 @@ export class GameScene extends Phaser.Scene {
       this.player.setVelocityX(-baseSpeed);
       this.shotDirectionX = -1;
       this.shotDirectionY = 0;
+      this.player.setTexture('player-left');
     } else if (this.cursors.right.isDown) {
       this.player.setVelocityX(baseSpeed);
       this.shotDirectionX = 1;
       this.shotDirectionY = 0;
+      this.player.setTexture('player-right');
     } else {
       this.player.setVelocityX(0);
+      if (this.cursors.up.isDown) {
+        this.player.setTexture('player-back');
+      } else if (this.cursors.down.isDown) {
+        this.player.setTexture('player-front');
+      }
     }
 
     this.player.x = Phaser.Math.Clamp(this.player.x, 30, WORLD_SIZE - 30);
