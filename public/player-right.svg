@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28" shape-rendering="crispEdges">
+<rect width="28" height="28" fill="none"/>
+<!-- side hair -->
+<path fill="#f08aaa" d="M8 2h10v2h3v3h2v8h-2v4h-3v-3h-7v3H7v-4H5V7h2V4h1z"/>
+<path fill="#ffd1df" d="M9 2h9v2h3v5h-2V6h-3V4H9v4H7V6h2z"/>
+<!-- face and glasses -->
+<path fill="#ffd8cf" d="M10 8h8v2h2v6h-2v3h-8v-2H8v-7h2z"/>
+<path fill="#8bd5e8" d="M14 10h6v1h-6zm5 1h2v3h-2z"/>
+<rect x="16" y="11" width="2" height="1" fill="#526878"/><rect x="12" y="12" width="2" height="1" fill="#526878"/>
+<!-- sweater -->
+<path fill="#91c9e2" d="M9 18h11v2h3v5h-4v-3h-2v4h-6v-4H9v3H6v-5h3z"/>
+<path fill="#b9e4f1" d="M11 18h7v4h-2v2h-3v-2h-2z"/>
+<!-- socks -->
+<rect x="11" y="24" width="3" height="2" fill="#ffd8cf"/><rect x="16" y="24" width="3" height="2" fill="#ffd8cf"/>
+<path fill="#f8fbff" d="M10 25h4v3H9v-1H8v-2zm6 0h4v2h-1v1h-5v-3z"/>
+<rect x="9" y="26" width="5" height="1" fill="#79bddb"/><rect x="15" y="26" width="5" height="1" fill="#79bddb"/>
+</svg>
