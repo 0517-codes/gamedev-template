@@ -187,8 +187,12 @@ export class GameScene extends Phaser.Scene {
     this.dashRequiresRelease = false;
     this.dashInvulnerableUntil = 0;
     this.selectedSkill = 1;
+    this.firstStageSkill = undefined;
+    this.secondStageSkill = undefined;
+    this.thirdStageSkill = undefined;
     this.skillSelectionActive = false;
     this.skillSelectionIndex = 0;
+    this.skillCooldowns = { z: 0, x: 0, c: 0 };
     this.beamChargeStartedAt = 0;
     this.beamRequiresRelease = false;
     this.beamActiveUntil = 0;
