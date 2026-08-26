@@ -24,11 +24,11 @@ const MAGAZINE_SIZE = 12;
 const RELOAD_DURATION_MS = 2000;
 const DASH_DURATION_MS = 10000;
 const GUIDE_DISPLAY_MS = 5000;
-const GUIDE_COOLDOWN_MS = 15000;
+const GUIDE_COOLDOWN_MS = 10000;
 const DASH_CHARGE_MS = 1000;
-const SUPER_DASH_COOLDOWN_MS = 6000;
-const SUPER_DASH_INVULNERABLE_MS = 2000;
-const BEAM_CHARGE_MS = 5000;
+const SUPER_DASH_COOLDOWN_MS = 4000;
+const SUPER_DASH_INVULNERABLE_MS = 1000;
+const BEAM_CHARGE_MS = 3000;
 const MAZE_COLUMNS = 40;
 const MAZE_ROWS = 40;
 const MAZE_CELL_SIZE = 44;
@@ -137,6 +137,7 @@ export class GameScene extends Phaser.Scene {
   private dashEffectEndY = 0;
   private dashEffectUntil = 0;
   private dangerZone?: Phaser.GameObjects.Rectangle;
+  private meteorWarningZone?: Phaser.GameObjects.Rectangle;
   private guidePath?: Phaser.GameObjects.Graphics;
   private guideHideTimer?: Phaser.Time.TimerEvent;
   private reloadGauge?: Phaser.GameObjects.Graphics;
@@ -300,6 +301,14 @@ export class GameScene extends Phaser.Scene {
       .setDepth(901);
     this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0xf1f1f1);
     this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xaaaaaa);
+    this.meteorWarningZone = this.add.rectangle(
+      WORLD_SIZE / 2,
+      40,
+      WORLD_SIZE,
+      80,
+      0xffffff,
+      0,
+    ).setDepth(7);
     this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xaaaaaa);
 
     this.player = this.physics.add.sprite(START_X, START_Y, 'player-front');
@@ -462,6 +471,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(21);
     this.dangerZone?.destroy();
     this.dangerZone = undefined;
+    this.meteorWarningZone?.setAlpha(0);
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
     this.banner.setText(`ラウンド ${this.round}`).setAlpha(0);
@@ -1631,6 +1641,17 @@ export class GameScene extends Phaser.Scene {
     const zone = this.add.rectangle(x, y, 120, 76, 0x888888, 0.45)
       .setStrokeStyle(4, 0x222222, 1);
     this.dangerZone = zone;
+    const warningZone = this.meteorWarningZone;
+    if (warningZone) {
+      warningZone.setAlpha(0);
+      this.tweens.add({
+        targets: warningZone,
+        alpha: 0.8,
+        duration: 300,
+        yoyo: true,
+        repeat: 2,
+      });
+    }
     this.tweens.add({
       targets: zone,
       alpha: 0.85,
@@ -1644,6 +1665,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.dangerZone = undefined;
       this.dangerDropTimer = undefined;
+      warningZone?.setAlpha(0);
       zone.destroy();
       this.dropBomb();
     });
@@ -1706,6 +1728,7 @@ export class GameScene extends Phaser.Scene {
     this.bombTimer?.remove();
     this.dangerZone?.destroy();
     this.dangerZone = undefined;
+    this.meteorWarningZone?.setAlpha(0);
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
     this.banner.setText(`ラウンド ${this.round} クリア`).setAlpha(1);
@@ -1735,6 +1758,7 @@ export class GameScene extends Phaser.Scene {
     this.bombTimer?.remove();
     this.dangerZone?.destroy();
     this.dangerZone = undefined;
+    this.meteorWarningZone?.setAlpha(0);
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
     this.bombs.clear(true, true);
