@@ -1300,8 +1300,8 @@ export class GameScene extends Phaser.Scene {
       this.reloadGauge = undefined;
     }
     const bullet = this.bullets.create(
-      this.player.x + this.shotDirectionX * 28,
-      this.player.y + this.shotDirectionY * 28,
+      this.player.x,
+      this.player.y,
       superShot ? 'super-bullet' : 'bullet',
     ) as Phaser.Physics.Arcade.Sprite;
     if (superShot) {
