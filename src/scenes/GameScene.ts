@@ -22,9 +22,12 @@ const ROUND_TIME_LIMIT_SECONDS = 180;
 const BULLET_FIRE_INTERVAL_MS = 120;
 const MAGAZINE_SIZE = 12;
 const RELOAD_DURATION_MS = 2000;
+const SUPER_BULLET_WIDTH = 20;
+const SUPER_BULLET_WALL_LIMIT = 5;
+const SUPER_SHOT_COOLDOWN_MS = 10000;
 const DASH_DURATION_MS = 10000;
 const TRANSPARENCY_DURATION_MS = 3000;
-const TRANSPARENCY_COOLDOWN_MS = 7000;
+const TRANSPARENCY_COOLDOWN_MS = 8000;
 const GUIDE_DISPLAY_MS = 5000;
 const GUIDE_COOLDOWN_MS = 10000;
 const DASH_CHARGE_MS = 1000;
@@ -122,6 +125,7 @@ export class GameScene extends Phaser.Scene {
   private skillCardLabels: Phaser.GameObjects.Text[] = [];
   private skillSelectionConfig?: RoundConfig;
   private skillCooldowns: Record<SkillSlot, number> = { z: 0, x: 0, c: 0 };
+  private superShotAmmo = 0;
   private beamChargeStartedAt = 0;
   private beamRequiresRelease = false;
   private beamActiveUntil = 0;
@@ -199,6 +203,7 @@ export class GameScene extends Phaser.Scene {
     this.skillSelectionActive = false;
     this.skillSelectionIndex = 0;
     this.skillCooldowns = { z: 0, x: 0, c: 0 };
+    this.superShotAmmo = 0;
     this.beamChargeStartedAt = 0;
     this.beamRequiresRelease = false;
     this.beamActiveUntil = 0;
@@ -241,6 +246,7 @@ export class GameScene extends Phaser.Scene {
     this.updateGuideSkill(time);
     this.updateDashGauge(time);
     this.updateTransparencySkill(time);
+    this.updateSuperShot(time);
     this.updateReload(time);
     this.fireWeapon(time);
     this.recycleCars();
@@ -273,6 +279,14 @@ export class GameScene extends Phaser.Scene {
     bulletGraphics.fillRoundedRect(0, 0, 8, 22, 3);
     bulletGraphics.generateTexture('bullet', 8, 22);
     bulletGraphics.destroy();
+
+    const superBulletGraphics = this.add.graphics();
+    superBulletGraphics.fillStyle(0xffcc33, 1);
+    superBulletGraphics.fillRoundedRect(0, 0, SUPER_BULLET_WIDTH, 22, 8);
+    superBulletGraphics.lineStyle(2, 0x663300, 1);
+    superBulletGraphics.strokeRoundedRect(0, 0, SUPER_BULLET_WIDTH, 22, 8);
+    superBulletGraphics.generateTexture('super-bullet', SUPER_BULLET_WIDTH, 22);
+    superBulletGraphics.destroy();
 
     const wallGraphics = this.add.graphics();
     wallGraphics.fillStyle(0x888888, 1);
@@ -338,6 +352,7 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.cars, this.handleHit, undefined, this);
     this.physics.add.overlap(this.player, this.bombs, this.handleBombHit, undefined, this);
     this.physics.add.overlap(this.bullets, this.cars, this.handleBulletHit, undefined, this);
+    this.physics.add.overlap(this.bullets, this.walls, this.handleBulletWallHit, undefined, this);
     this.physics.add.overlap(this.player, this.chests, this.openChest, undefined, this);
     this.physics.add.overlap(this.player, this.keys, this.collectKey, undefined, this);
     this.physics.add.collider(
@@ -513,7 +528,7 @@ export class GameScene extends Phaser.Scene {
     const cardGap = 28;
     const cardY = centerY + 20;
     const skillNames = this.round === 2
-      ? ['透明化', '回転ナイフ', '超速ダッシュ']
+      ? ['透明化', 'スーパーショット', '超速ダッシュ']
       : ['虹色ビーム', '回転ナイフ', '超速ダッシュ'];
 
     this.skillSelectionActive = true;
@@ -725,6 +740,36 @@ export class GameScene extends Phaser.Scene {
     return '超速ダッシュ';
   }
 
+  private isSuperShotActive(): boolean {
+    return this.secondStageSkill === 2 && this.superShotAmmo > 0;
+  }
+
+  private updateSuperShot(time: number): void {
+    if (this.secondStageSkill !== 2
+      || !Phaser.Input.Keyboard.JustDown(this.secondStageSkillKey)
+      || (!this.debugMode && time < this.skillCooldowns.x)) {
+      return;
+    }
+    this.superShotAmmo = MAGAZINE_SIZE;
+    this.ammo = MAGAZINE_SIZE;
+    this.reloading = false;
+    this.reloadGauge?.destroy();
+    this.reloadGauge = undefined;
+    if (!this.debugMode) {
+      this.skillCooldowns.x = time + SUPER_SHOT_COOLDOWN_MS;
+    }
+  }
+
+  private getKnifeSkillSlotJustDown(): SkillSlot | undefined {
+    if (this.thirdStageSkill === 2 && Phaser.Input.Keyboard.JustDown(this.skillUseKey)) {
+      return 'c';
+    }
+    if (this.firstStageSkill === 2 && Phaser.Input.Keyboard.JustDown(this.skillConfirmKey)) {
+      return 'z';
+    }
+    return undefined;
+  }
+
   private isSkillKeyDown(skill: SkillId): boolean {
     if (skill === 1) {
       return (this.thirdStageSkill === skill && this.skillUseKey.isDown)
@@ -751,19 +796,6 @@ export class GameScene extends Phaser.Scene {
       return 'x';
     }
     if (this.firstStageSkill === skill && this.skillConfirmKey.isDown) {
-      return 'z';
-    }
-    return undefined;
-  }
-
-  private getSkillSlotJustDown(skill: SkillId): SkillSlot | undefined {
-    if (this.thirdStageSkill === skill && Phaser.Input.Keyboard.JustDown(this.skillUseKey)) {
-      return 'c';
-    }
-    if (this.secondStageSkill === skill && Phaser.Input.Keyboard.JustDown(this.secondStageSkillKey)) {
-      return 'x';
-    }
-    if (this.firstStageSkill === skill && Phaser.Input.Keyboard.JustDown(this.skillConfirmKey)) {
       return 'z';
     }
     return undefined;
@@ -858,7 +890,7 @@ export class GameScene extends Phaser.Scene {
 
     this.player.x = Phaser.Math.Clamp(this.player.x, 30, WORLD_SIZE - 30);
 
-    const knifeSlot = this.getSkillSlotJustDown(2);
+    const knifeSlot = this.getKnifeSkillSlotJustDown();
     if (knifeSlot && (this.debugMode || time >= this.skillCooldowns[knifeSlot])) {
       this.startKnives(time, knifeSlot);
     }
@@ -1250,20 +1282,42 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (Phaser.Input.Keyboard.JustDown(this.reloadKey) || this.ammo <= 0) {
-      this.startReload(time);
+      if (this.isSuperShotActive()) {
+        this.ammo = MAGAZINE_SIZE;
+      } else {
+        this.startReload(time);
+      }
       return;
     }
     if (!this.fireKey.isDown || time < this.nextShotAt) {
       return;
     }
+    const superShot = this.isSuperShotActive();
+    if (superShot && this.ammo <= 0) {
+      this.ammo = MAGAZINE_SIZE;
+      this.reloading = false;
+      this.reloadGauge?.destroy();
+      this.reloadGauge = undefined;
+    }
     const bullet = this.bullets.create(
       this.player.x + this.shotDirectionX * 28,
       this.player.y + this.shotDirectionY * 28,
-      'bullet',
+      superShot ? 'super-bullet' : 'bullet',
     ) as Phaser.Physics.Arcade.Sprite;
+    if (superShot) {
+      bullet.setData('superShot', true);
+      bullet.setData('wallsDestroyed', 0);
+      bullet.body?.setSize(8, 22, true);
+    }
     bullet.setVelocity(this.shotDirectionX * 760, this.shotDirectionY * 760);
     bullet.setAngle(this.shotDirectionX !== 0 ? (this.shotDirectionX > 0 ? 90 : -90) : 0);
     this.ammo -= 1;
+    if (superShot) {
+      this.superShotAmmo -= 1;
+    }
+    if (superShot && this.ammo === 0) {
+      this.ammo = MAGAZINE_SIZE;
+    }
     this.nextShotAt = time + BULLET_FIRE_INTERVAL_MS;
   }
 
@@ -1647,9 +1701,36 @@ export class GameScene extends Phaser.Scene {
     if (!bullet.active || !car.active) {
       return;
     }
-    bullet.destroy();
+    if (bullet.getData('superShot') !== true) {
+      bullet.destroy();
+    }
     car.destroy();
     this.score += 50;
+  }
+
+  private handleBulletWallHit(
+    bulletObject: Phaser.Types.Physics.Arcade.GameObjectWithBody
+      | Phaser.Physics.Arcade.Body
+      | Phaser.Physics.Arcade.StaticBody
+      | Phaser.Tilemaps.Tile,
+    wallObject: Phaser.Types.Physics.Arcade.GameObjectWithBody
+      | Phaser.Physics.Arcade.Body
+      | Phaser.Physics.Arcade.StaticBody
+      | Phaser.Tilemaps.Tile,
+  ): void {
+    const bullet = bulletObject as unknown as Phaser.Physics.Arcade.Sprite;
+    const wall = wallObject as unknown as Phaser.Physics.Arcade.Sprite;
+    if (!bullet.active || !wall.active || bullet.getData('superShot') !== true) {
+      return;
+    }
+
+    wall.destroy();
+    const wallsDestroyed = (bullet.getData('wallsDestroyed') as number | undefined) ?? 0;
+    const nextWallsDestroyed = wallsDestroyed + 1;
+    bullet.setData('wallsDestroyed', nextWallsDestroyed);
+    if (nextWallsDestroyed >= SUPER_BULLET_WALL_LIMIT) {
+      bullet.destroy();
+    }
   }
 
   private handleHit(): void {
@@ -1877,12 +1958,22 @@ export class GameScene extends Phaser.Scene {
           : this.transparencyReadyAt > time
             ? `あと ${((this.transparencyReadyAt - time) / 1000).toFixed(1)}秒`
             : '準備完了'
+        : slot === 'x' && skill === 2
+          ? this.superShotAmmo > 0
+            ? `残り ${this.superShotAmmo}発`
+            : cooldown > 0
+              ? `あと ${cooldown.toFixed(1)}秒`
+              : '準備完了'
         : skill === 1
           ? `チャージ ${Math.round(beamCharge * 100)}%`
         : skill === 3 && dashCharge > 0
           ? `チャージ ${Math.round(dashCharge * 100)}%`
         : cooldown > 0 ? `あと ${cooldown.toFixed(1)}秒` : '準備完了';
-      const skillName = isTransparencySkill ? '透明化' : this.getSkillName(skill);
+      const skillName = isTransparencySkill
+        ? '透明化'
+        : slot === 'x' && skill === 2
+          ? 'スーパーショット'
+          : this.getSkillName(skill);
       return [`[${slot.toUpperCase()}] ${skillName}`, `  ${status}`];
     });
     this.hud.setText([
