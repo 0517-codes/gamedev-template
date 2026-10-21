@@ -23,6 +23,8 @@ const BULLET_FIRE_INTERVAL_MS = 120;
 const MAGAZINE_SIZE = 12;
 const RELOAD_DURATION_MS = 2000;
 const DASH_DURATION_MS = 10000;
+const TRANSPARENCY_DURATION_MS = 3000;
+const TRANSPARENCY_COOLDOWN_MS = 7000;
 const GUIDE_DISPLAY_MS = 5000;
 const GUIDE_COOLDOWN_MS = 10000;
 const DASH_CHARGE_MS = 1000;
@@ -89,6 +91,8 @@ export class GameScene extends Phaser.Scene {
   private bombTimer?: Phaser.Time.TimerEvent;
   private dangerDropTimer?: Phaser.Time.TimerEvent;
   private hitCooldownUntil = 0;
+  private transparencyUntil = 0;
+  private transparencyReadyAt = 0;
   private nextShotAt = 0;
   private ammo = MAGAZINE_SIZE;
   private reloading = false;
@@ -173,6 +177,8 @@ export class GameScene extends Phaser.Scene {
     this.speedBoostUntil = 0;
     this.warpReadyAt = 0;
     this.hitCooldownUntil = 0;
+    this.transparencyUntil = 0;
+    this.transparencyReadyAt = 0;
     this.nextShotAt = 0;
     this.ammo = MAGAZINE_SIZE;
     this.reloading = false;
@@ -234,6 +240,7 @@ export class GameScene extends Phaser.Scene {
     this.updateDashEffect(time);
     this.updateGuideSkill(time);
     this.updateDashGauge(time);
+    this.updateTransparencySkill(time);
     this.updateReload(time);
     this.fireWeapon(time);
     this.recycleCars();
@@ -333,7 +340,12 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.bullets, this.cars, this.handleBulletHit, undefined, this);
     this.physics.add.overlap(this.player, this.chests, this.openChest, undefined, this);
     this.physics.add.overlap(this.player, this.keys, this.collectKey, undefined, this);
-    this.physics.add.collider(this.player, this.walls);
+    this.physics.add.collider(
+      this.player,
+      this.walls,
+      undefined,
+      () => this.time.now >= this.transparencyUntil,
+    );
     this.physics.add.collider(this.cars, this.walls);
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
     this.player.setCollideWorldBounds(true);
@@ -417,6 +429,8 @@ export class GameScene extends Phaser.Scene {
     this.transitioning = true;
     this.hits = 0;
     this.hitCooldownUntil = 0;
+    this.transparencyUntil = 0;
+    this.transparencyReadyAt = 0;
     this.roundSeconds = 0;
     this.player.setPosition(START_X, START_Y);
     this.player.setVelocity(0, 0);
@@ -498,7 +512,9 @@ export class GameScene extends Phaser.Scene {
     const cardHeight = 260;
     const cardGap = 28;
     const cardY = centerY + 20;
-    const skillNames = ['虹色ビーム', '回転ナイフ', '超速ダッシュ'];
+    const skillNames = this.round === 2
+      ? ['透明化', '回転ナイフ', '超速ダッシュ']
+      : ['虹色ビーム', '回転ナイフ', '超速ダッシュ'];
 
     this.skillSelectionActive = true;
     this.skillSelectionIndex = 0;
@@ -710,6 +726,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private isSkillKeyDown(skill: SkillId): boolean {
+    if (skill === 1) {
+      return (this.thirdStageSkill === skill && this.skillUseKey.isDown)
+        || (this.firstStageSkill === skill && this.skillConfirmKey.isDown);
+    }
     return this.getSkillSlotDown(skill) !== undefined;
   }
 
@@ -750,6 +770,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private isSkillOwned(skill: SkillId): boolean {
+    if (skill === 1) {
+      return this.firstStageSkill === skill || this.thirdStageSkill === skill;
+    }
     return this.firstStageSkill === skill
       || this.secondStageSkill === skill
       || this.thirdStageSkill === skill;
@@ -1186,8 +1209,27 @@ export class GameScene extends Phaser.Scene {
     this.dashGauge?.fillRect(x, y, width * remaining, 10);
     if (remaining <= 0) {
       this.dashMotion?.stop();
-      this.player.setAlpha(1);
+      if (time >= this.transparencyUntil) {
+        this.player.setAlpha(1);
+      }
       this.player.setScale(1);
+    }
+  }
+
+  private updateTransparencySkill(time: number): void {
+    if (this.secondStageSkill !== 1) {
+      return;
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.secondStageSkillKey)
+      && time >= this.transparencyReadyAt) {
+      this.transparencyUntil = time + TRANSPARENCY_DURATION_MS;
+      this.transparencyReadyAt = time + TRANSPARENCY_COOLDOWN_MS;
+    }
+    if (time < this.transparencyUntil) {
+      this.player.setAlpha(0.3);
+    } else if (this.transparencyUntil > 0) {
+      this.transparencyUntil = 0;
+      this.player.setAlpha(1);
     }
   }
 
@@ -1614,6 +1656,7 @@ export class GameScene extends Phaser.Scene {
     if (this.debugMode
       || this.transitioning
       || this.paused
+      || this.time.now < this.transparencyUntil
       || this.time.now < this.hitCooldownUntil
       || this.time.now < this.dashInvulnerableUntil) {
       return;
@@ -1827,12 +1870,20 @@ export class GameScene extends Phaser.Scene {
         return [];
       }
       const cooldown = Math.max(0, (this.skillCooldowns[slot] - time) / 1000);
-      const status = skill === 1
-        ? `チャージ ${Math.round(beamCharge * 100)}%`
+      const isTransparencySkill = slot === 'x' && skill === 1;
+      const status = isTransparencySkill
+        ? this.transparencyUntil > time
+          ? `残り ${((this.transparencyUntil - time) / 1000).toFixed(1)}秒`
+          : this.transparencyReadyAt > time
+            ? `あと ${((this.transparencyReadyAt - time) / 1000).toFixed(1)}秒`
+            : '準備完了'
+        : skill === 1
+          ? `チャージ ${Math.round(beamCharge * 100)}%`
         : skill === 3 && dashCharge > 0
           ? `チャージ ${Math.round(dashCharge * 100)}%`
         : cooldown > 0 ? `あと ${cooldown.toFixed(1)}秒` : '準備完了';
-      return [`[${slot.toUpperCase()}] ${this.getSkillName(skill)}`, `  ${status}`];
+      const skillName = isTransparencySkill ? '透明化' : this.getSkillName(skill);
+      return [`[${slot.toUpperCase()}] ${skillName}`, `  ${status}`];
     });
     this.hud.setText([
       ...(this.debugMode ? ['DEBUGMODE'] : []),
