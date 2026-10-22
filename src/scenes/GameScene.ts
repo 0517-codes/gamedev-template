@@ -12,6 +12,11 @@ type RoundConfig = {
 
 type SkillId = 1 | 2 | 3;
 type SkillSlot = 'z' | 'x' | 'c';
+type MeteorStrike = {
+  x: number;
+  targetY: number;
+  warningZone: Phaser.GameObjects.Rectangle;
+};
 
 const ROUND_CONFIGS: RoundConfig[] = [
   { carSpeed: 190, spawnDelay: 1250, laneCount: 4, carsPerRound: 500, bombDelay: 6200, bombCount: 5, mazeWalls: 5 },
@@ -145,7 +150,8 @@ export class GameScene extends Phaser.Scene {
   private dashEffectEndY = 0;
   private dashEffectUntil = 0;
   private dangerZone?: Phaser.GameObjects.Rectangle;
-  private meteorWarningZone?: Phaser.GameObjects.Rectangle;
+  private meteorWarningZones = new Set<Phaser.GameObjects.Rectangle>();
+  private bombWarningZones = new Map<Phaser.Physics.Arcade.Sprite, Phaser.GameObjects.Rectangle>();
   private guidePath?: Phaser.GameObjects.Graphics;
   private guideHideTimer?: Phaser.Time.TimerEvent;
   private reloadGauge?: Phaser.GameObjects.Graphics;
@@ -326,14 +332,6 @@ export class GameScene extends Phaser.Scene {
       .setDepth(901);
     this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE, 0xf1f1f1);
     this.add.rectangle(WORLD_SIZE / 2, 40, WORLD_SIZE, 80, 0xaaaaaa);
-    this.meteorWarningZone = this.add.rectangle(
-      WORLD_SIZE / 2,
-      40,
-      WORLD_SIZE,
-      80,
-      0xffffff,
-      0,
-    ).setDepth(7);
     this.add.rectangle(WORLD_SIZE / 2, WORLD_SIZE - 40, WORLD_SIZE, 80, 0xaaaaaa);
 
     this.player = this.physics.add.sprite(START_X, START_Y, 'player-front');
@@ -504,7 +502,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(21);
     this.dangerZone?.destroy();
     this.dangerZone = undefined;
-    this.meteorWarningZone?.setAlpha(0);
+    this.clearMeteorWarningZones();
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
     this.banner.setText(`ラウンド ${this.round}`).setAlpha(0);
@@ -1764,22 +1762,28 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    const config = ROUND_CONFIGS[this.round - 1];
+    const bombCount = config?.bombCount ?? 1;
+    const strikes: MeteorStrike[] = Array.from({ length: bombCount }, () => {
+      const x = Phaser.Math.Between(100, WORLD_SIZE - 100);
+      const targetY = Phaser.Math.Between(160, WORLD_SIZE - 160);
+      const warningZone = this.add.rectangle(
+        x,
+        targetY / 2,
+        72,
+        targetY,
+        0xff2222,
+        0.3,
+      ).setStrokeStyle(2, 0xff0000, 0.65).setDepth(6);
+      this.meteorWarningZones.add(warningZone);
+      return { x, targetY, warningZone };
+    });
+
     const x = Phaser.Math.Between(150, WORLD_SIZE - 150);
     const y = Phaser.Math.Between(200, WORLD_SIZE - 200);
     const zone = this.add.rectangle(x, y, 120, 76, 0x888888, 0.45)
       .setStrokeStyle(4, 0x222222, 1);
     this.dangerZone = zone;
-    const warningZone = this.meteorWarningZone;
-    if (warningZone) {
-      warningZone.setAlpha(0);
-      this.tweens.add({
-        targets: warningZone,
-        alpha: 0.8,
-        duration: 300,
-        yoyo: true,
-        repeat: 2,
-      });
-    }
     this.tweens.add({
       targets: zone,
       alpha: 0.85,
@@ -1787,27 +1791,23 @@ export class GameScene extends Phaser.Scene {
       yoyo: true,
       repeat: 5,
     });
-    this.dangerDropTimer = this.time.delayedCall(2000, () => {
+    this.dangerDropTimer = this.time.delayedCall(500, () => {
       if (this.dangerZone !== zone || this.transitioning) {
         return;
       }
       this.dangerZone = undefined;
       this.dangerDropTimer = undefined;
-      warningZone?.setAlpha(0);
       zone.destroy();
-      this.dropBomb();
+      this.dropBomb(strikes);
     });
   }
 
-  private dropBomb(): void {
-    const config = ROUND_CONFIGS[this.round - 1];
-    const bombCount = config?.bombCount ?? 1;
-    for (let index = 0; index < bombCount; index += 1) {
-      const bombX = Phaser.Math.Between(100, WORLD_SIZE - 100);
-      const bombTargetY = Phaser.Math.Between(160, WORLD_SIZE - 160);
-      const bomb = this.bombs.create(bombX, 45, 'bomb') as Phaser.Physics.Arcade.Sprite;
-      bomb.setVelocity(0, 500);
-      bomb.setData('targetY', bombTargetY);
+  private dropBomb(strikes: MeteorStrike[]): void {
+    for (const strike of strikes) {
+      const bomb = this.bombs.create(strike.x, 45, 'bomb') as Phaser.Physics.Arcade.Sprite;
+      bomb.setVelocity(0, 1000);
+      bomb.setData('targetY', strike.targetY);
+      this.bombWarningZones.set(bomb, strike.warningZone);
     }
   }
 
@@ -1818,9 +1818,21 @@ export class GameScene extends Phaser.Scene {
       if (targetY !== undefined && bomb.y >= targetY) {
         bomb.setVelocity(0, 0);
         this.createExplosion(bomb.x, targetY);
+        const warningZone = this.bombWarningZones.get(bomb);
+        warningZone?.destroy();
+        if (warningZone) {
+          this.meteorWarningZones.delete(warningZone);
+        }
+        this.bombWarningZones.delete(bomb);
         bomb.destroy();
       }
     }
+  }
+
+  private clearMeteorWarningZones(): void {
+    this.meteorWarningZones.forEach((warningZone) => warningZone.destroy());
+    this.meteorWarningZones.clear();
+    this.bombWarningZones.clear();
   }
 
   private handleBombHit(): void {
@@ -1856,7 +1868,7 @@ export class GameScene extends Phaser.Scene {
     this.bombTimer?.remove();
     this.dangerZone?.destroy();
     this.dangerZone = undefined;
-    this.meteorWarningZone?.setAlpha(0);
+    this.clearMeteorWarningZones();
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
     this.banner.setText(`ラウンド ${this.round} クリア`).setAlpha(1);
@@ -1886,7 +1898,7 @@ export class GameScene extends Phaser.Scene {
     this.bombTimer?.remove();
     this.dangerZone?.destroy();
     this.dangerZone = undefined;
-    this.meteorWarningZone?.setAlpha(0);
+    this.clearMeteorWarningZones();
     this.dangerDropTimer?.remove();
     this.dangerDropTimer = undefined;
     this.bombs.clear(true, true);
