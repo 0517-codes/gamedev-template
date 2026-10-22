@@ -1010,7 +1010,7 @@ export class GameScene extends Phaser.Scene {
     for (const child of this.bombs.children) {
       const bomb = child as Phaser.Physics.Arcade.Sprite;
       if (Phaser.Math.Distance.Between(x, y, bomb.x, bomb.y) <= KNIFE_SIZE / 2 + bomb.displayWidth / 2) {
-        bomb.destroy();
+        this.destroyBomb(bomb);
       }
     }
   }
@@ -1205,7 +1205,7 @@ export class GameScene extends Phaser.Scene {
     for (const child of this.bombs.children) {
       const bomb = child as Phaser.Physics.Arcade.Sprite;
       if (this.isObjectInBounds(bomb, beamLeft, beamRight, beamTop, beamBottom)) {
-        bomb.destroy();
+        this.destroyBomb(bomb);
       }
     }
   }
@@ -1818,15 +1818,19 @@ export class GameScene extends Phaser.Scene {
       if (targetY !== undefined && bomb.y >= targetY) {
         bomb.setVelocity(0, 0);
         this.createExplosion(bomb.x, targetY);
-        const warningZone = this.bombWarningZones.get(bomb);
-        warningZone?.destroy();
-        if (warningZone) {
-          this.meteorWarningZones.delete(warningZone);
-        }
-        this.bombWarningZones.delete(bomb);
-        bomb.destroy();
+        this.destroyBomb(bomb);
       }
     }
+  }
+
+  private destroyBomb(bomb: Phaser.Physics.Arcade.Sprite): void {
+    const warningZone = this.bombWarningZones.get(bomb);
+    warningZone?.destroy();
+    if (warningZone) {
+      this.meteorWarningZones.delete(warningZone);
+    }
+    this.bombWarningZones.delete(bomb);
+    bomb.destroy();
   }
 
   private clearMeteorWarningZones(): void {
